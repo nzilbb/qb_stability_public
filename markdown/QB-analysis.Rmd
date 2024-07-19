@@ -1,0 +1,5332 @@
+---
+title: "How stable are patterns of covariation across time?"
+subtitle: "Supplementary Material"
+author:
+  - Gia Hurring
+  - Joshua Wilson Black
+  - Jen Hay
+  - Lynn Clark
+date: "2024-07-10"
+output:
+  bookdown::html_document2:
+    fig_caption: true
+    toc: true
+    toc_float: true
+    theme: flatly
+    collapsed: no
+    df_print: paged
+    code_folding: show
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{=html}
+<style>
+.list-group-item.active, .list-group-item.active:focus, .list-group-item.active:hover {
+    background-color: #95A044;
+}
+
+pre {
+  max-height: 300px;
+  overflow-y: 300px;
+}
+</style>
+```
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE, 
+  fig.align='center', 
+  warning = FALSE,
+  message = FALSE
+)
+```
+
+# Overview
+
+## Document Structure
+
+This document sets out the analysis for the paper 'How stable are
+patterns of covariation across time?'
+
+This paper uses the QuakeBox (QB1) and QuakeBox 2 (QB2) corpora to
+investigate the stability of PCA across the same speakers at two time
+points.
+
+The structure is as follows, numbering by section:
+
+2.  Preprocessing, Filtering, and Normalisation.
+
+3.  Overall Pattern of Change\
+    *QB1 data is used to set out the overall direction of sound change
+    for* *the largest possible subset of speakers.*
+
+4.  Analysis 1: Speaker Change Between QB1 and QB2\
+    *The main analysis is carried out, comparing PCs from Brand et al.
+    (2021),* *and between QB1 and QB2.*
+
+5.  Analysis 2: Uncontrolled Social Variation\
+    *The main analysis is repeated, including social variables in the
+    GAMM models.*
+
+6.  Additional Checks
+
+    1.  Are These Phenomena Specific to NZE?\
+        *We report relevant details of work-in-progress applying PCA to
+        the OLiVE* *Corpus of Liverpool English.*
+    2.  Are These Phenomena Affected by Repetition of Content?\
+        *We repeat the analysis using tagging of repeated content
+        between QB1 and* *QB2.*
+
+Note the occasional use of tabs to organise material which takes up a
+lot of space (such as diagnostic plots for each model). These appear as
+follows:
+
+![](../images/tabs.png)
+
+## GitHub Repository, R Project, and `renv`
+
+If you wish to run this code yourself, we recommend cloning the GitHub
+repository and running the code using the `.Rproj` file to load the
+entire project. We use the `renv` package to track the package versions
+we have used and allow you to load the same package versions yourself
+using the function `renv::restore()` from within the project. For more
+details, look [here](https://rstudio.github.io/renv/articles/renv.html).
+
+## Libraries and Data
+
+This document uses the following libraries. Note the use of
+`nzilbb.vowels`, which is in development and available [via
+GitHub](https://github.com/nzilbb/nzilbb_vowels). Code to install from
+GitHub is in the code block below.
+
+```{r}
+# We use a wide range of tidyverse functions for data filtering and plotting.
+library(tidyverse)
+library(glue)
+library(furrr)
+library(tidylog) #gives summaries
+library(scales) #rescale functions
+library(scico)
+library(gt) # For presentation tables.
+
+# The following packages are used for plotting.
+library(patchwork)
+library(ggrepel)#more plotting things
+library(gganimate) #animation plots
+library(gifski) #needed to generate gifs
+library(itsadug)
+library(DiagrammeR)
+library(plotly)
+library(ggforce)
+library(corrplot)
+
+# The following packages are used for modelling and analysis
+library(mgcv) #gamms
+library(lme4) #mixed-effects models
+library(factoextra) #pca
+library(lmerTest) #p values from lmer models
+
+# The following packages are used for table output.
+library(DT) #interactive data tables
+library(kableExtra) #outputting nice tables
+
+# We use `here` for file path management.
+library(here)
+
+#remotes::install_github('nzilbb/nzilbb_vowels')
+library(nzilbb.vowels)
+
+# We set a seed here. This will only give the same models if you run each
+# code block sequentially (rather than interactively running code blocks)
+set.seed(114)
+```
+
+The environment we have used to knit this document is:
+
+```{r}
+sessionInfo()
+```
+
+We load anonymised data. Data anonymisation requires that we carry out
+some preprocessing steps before the steps presented in this Markdown.
+
+The anonymised data has already had stopwords,[^1] words with
+hesitations, and tokens without transcribed words removed. We have also
+removed unimportant speaker demographics (such as their household
+location, occupation, areas lived, etc.) because otherwise, there would
+be enough information to determine the identities of many of our
+participants.
+
+[^1]: The removed stopwords were: 'a', 'ah', 'ahh', 'am', 'an', 'and',
+    'are', "aren't", 'as', 'at', 'aw', 'because', 'but', 'could', 'do',
+    "don't", 'eh', 'for', 'from', 'gonna', 'had', 'has', 'have', 'he',
+    "he's", 'her', 'high', 'him', 'huh', 'i', "i'll", "i'm", "i've",
+    "i'd", 'in', 'into', 'is', 'it', "it's", 'its', 'just', 'mean',
+    'my', 'nah', 'not', 'of', 'oh', 'on', 'or', 'our', 'says', 'she',
+    "she's", 'should', 'so', 'than', 'that', "that's", 'the', 'them',
+    'there', "there's", 'they', 'this', 'to', 'uh', 'um', 'up', 'was',
+    "wasn't", 'we', 'were', 'what', 'when', 'which', 'who', 'with',
+    'would', 'yeah', 'you', and "you've".
+
+We set the `ggplot` theme to `theme_bw()`:
+
+```{r}
+theme_set(theme_bw())
+```
+
+We load the data as follows:
+
+```{r}
+QB1 <- read_rds(here('data', 'QB1_anon.rds'))
+QB1_initial_count <- nrow(QB1)
+QB2 <- read_rds(here('data', 'QB2_anon.rds'))
+QB2_initial_count <- nrow(QB2)
+```
+
+The `_count` variables are used later in the Markdown in order to
+visualise the counts of tokens at each stage of the filtering process.
+
+The data consists of midpoint first and second formant readings from
+vowel tokens with additional data at the level of participant (e.g.
+participant ethnic background and gender), at the level of utterance
+(e.g. speech rate). Midpoint F1 and F2 values were extracted using
+LaBB-CAT's interface with Praat, with a maximum frequency of 5500 Hz for
+female speakers and 5000 Hz for male speakers (see
+`scripts/qb1_extraction` and `scripts/qb2_extraction` in the GitHub
+repository for this project
+[here](https://github.com/nzilbb/pca_stability)).
+
+The data is summarised in the following table (for both QB1 and QB2
+data):
+
+```{r}
+column_descriptions_initial <- c(
+  "Anonymised speaker code",
+  "Speaker gender (binary)",
+  "Speaker age category",
+  "Speaker ethnicity (at QB1)",
+  "Country speaker grew up",
+  "Region speaker grew up",
+  "Duration of speakers' speech (seconds)",
+  "Duration of transcript (seconds)",
+  "LaBB-CAT token identifier",
+  "Anonymised word identifier",
+  "Vowel category (DISC)",
+  "Onset of vowel token (seconds)",
+  "Offset of vowel token (seconds)",
+  "Stress code (primary, secondary, etc)",
+  "Vowel midpoint (seconds)",
+  "Previous segment (DISC)",
+  "Following segment (DISC)",
+  "Utterance articulation rate",
+  "Utterance speech rate",
+  "First formant midpoint reading",
+  "Second formant midpoint reading"
+)
+
+prefilter_table <- tibble(
+  Name = names(QB1),
+  Type = reframe(QB1, across(everything(), class))[2,] %>% as_vector(),
+  Description = column_descriptions_initial
+)
+
+prefilter_table <- prefilter_table %>% 
+  gt() %>% 
+  tab_header(
+    title = "Variables before preprocessing"
+  )
+
+prefilter_table
+```
+
+# Preprocessing, Filtering, and Normalisation
+
+This section tidies the data and implements the remaining filtering
+steps.
+
+## Tidying
+
+We change the DISC notation for vowels to Wells Lexical Set labels:
+
+```{r}
+wells_code <- function(in_data) {
+  in_data %>% 
+    mutate(
+      Vowel = fct_recode(
+        factor(VowelDISC),
+        FLEECE = "i",
+        KIT = "I",
+        DRESS = "E",
+        TRAP = "{",
+        START = "#",
+        LOT = "Q",
+        THOUGHT = "$",
+        NURSE = "3",
+        STRUT = "V",
+        FOOT = "U",
+        GOOSE = "u"
+    )
+  )
+}
+
+QB1 <- wells_code(QB1)
+QB2 <- wells_code(QB2)
+```
+
+We generate a vowel duration and orthographic length column.
+
+```{r}
+QB1 <- QB1 %>%
+  mutate(
+    VowelEnd = as.numeric(VowelEnd),
+    VowelStart = as.numeric(VowelStart),
+    VowelDur = VowelEnd - VowelStart
+  )
+
+QB2 <- QB2 %>%
+  mutate(
+    VowelDur = VowelEnd - VowelStart
+  )
+```
+
+As a final tidying step, we modify the `Ethnicity` column so that we get
+a binary distinction between Māori and non-Māori. The code here is
+messy, as it is capturing quite a few different cases. We also change
+the gender codes from lower case to upper case (e.g. 'm' -\> 'M') for
+compatibility with earlier code.
+
+```{r}
+QB1$Ethnicity[QB1$Ethnicity == "NZ mixed ethnicity"] <- "Maori"
+QB1$Ethnicity[QB1$Ethnicity == "NZ Maori"] <- "Maori"
+QB1$Ethnicity[QB1$Ethnicity == "na"] <- "Non-Maori"
+QB1$Ethnicity[QB1$Ethnicity == "Other"] <- "Non-Maori"
+QB1$Ethnicity[QB1$Ethnicity == "NZ European"] <- "Non-Maori"
+
+QB2$Ethnicity[QB2$Ethnicity == "NZ Maï¿½ori"] <- "Maori"
+QB2$Ethnicity[QB2$Ethnicity == "NZ mixed ethnicity"] <- "Maori"
+QB2$Ethnicity[QB2$Ethnicity == "NZ Maori"] <- "Maori"
+QB2$Ethnicity[QB2$Ethnicity == ""] <- "na"
+QB2$Ethnicity[QB2$Ethnicity == "Fijian Indian"] <- "Non-Maori"
+QB2$Ethnicity[QB2$Ethnicity == "Other"] <- "Non-Maori"
+QB2$Ethnicity[QB2$Ethnicity == "NZ European"] <- "Non-Maori"
+
+# If a speaker provides ethnicity info in QB1 but not QB2, we add their 
+# ethnicity info from QB1 to QB2.
+
+QB2 <- within(QB2, Ethnicity[Speaker == 'QB_NZ_M_594'] <- 'Non-Maori')
+QB2 <- within(QB2, Ethnicity[Speaker == 'QB_NZ_F_848'] <- 'Non-Maori')
+QB2 <- within(QB2, Ethnicity[Speaker == 'QB_NZ_M_493'] <- 'Non-Maori')
+
+# For convenience, we change gender coding from 'f', 'm' -> 'F', 'M'.
+QB1 <- QB1 %>%
+  mutate(
+    Gender = str_to_upper(Gender)
+  )
+
+QB2 <- QB2 %>%
+  mutate(
+    Gender = str_to_upper(Gender)
+  )
+```
+
+We code factor variables as factors (rather than character vectors).
+
+```{r}
+factor_vars <- c(
+  "Gender", "Ethnicity", "stress"
+)
+
+QB1 <- QB1 %>%
+  mutate(
+    across(all_of(factor_vars), as.factor),
+    Age = as.ordered(Age)
+  ) 
+
+QB2 <- QB2 %>%
+  mutate(
+    across(all_of(factor_vars), as.factor),
+    Age = as.ordered(Age)
+  ) 
+```
+
+## Filtering
+
+We now remove tokens which are, or are likely to be, errors introduced
+by forced alignment and formant tracking.
+
+First, we remove tokens:
+
+-   which have infeasibly short or long duration,
+-   have first formant values of 1100 Hz or greater,
+-   missing speaker metadata, and
+-   missing formant values.
+
+```{r warning=FALSE}
+error_filter <- function(in_data) {
+  out_data <- in_data %>%
+    filter(
+      between(VowelDur, 0.01, 2), #filter tokens with very short or long vowel 
+      # durations
+      F1_50 < 1100, # Remove all tokens with F1 at or above 1100hz.
+      # !(Vowel %in% c("THOUGHT", "LOT") & F2_50 > 2000),
+      !is.na(Gender), #filter speakers with missing gender
+      !Gender == "",
+      !is.na(Age), # Filter speakers with missing age.
+      Age != 'na', # Filter speakers with missing age.
+      !is.na(F1_50), # Filter missing formant values.
+      !is.na(F2_50)
+    )
+}
+
+QB1 <- error_filter(QB1)
+QB1_error_count <- nrow(QB1)
+
+QB2 <- error_filter(QB2)
+QB2_error_count <- nrow(QB2)
+```
+
+We then remove unstressed tokens and those which precede liquids.
+
+```{r}
+unstressed_filter <- function(in_data) {
+  out_data <- in_data %>% filter(
+    stress != "0" #filter any unstressed tokens
+  )
+}
+
+liquid_filter <- function(in_data) {
+  out_data <- in_data %>% mutate(
+    following_segment_category = fct_collapse(
+      as_factor(following_segment),
+      labial = c('m', 'p', 'b', 'f', 'w'),
+      velar = c('k', 'g', 'N'),
+      liquid = c('r', 'l'),
+      other_level = "other"
+    )
+  ) %>%
+  filter(
+    !following_segment_category == 'liquid'
+  )
+}
+    
+QB1 <- QB1 %>%
+  unstressed_filter() %>%
+  liquid_filter()
+
+QB1_stressliquid <- nrow(QB1)
+
+QB2 <- QB2 %>%
+  unstressed_filter() %>%
+  liquid_filter()
+
+QB2_stressliquid <- nrow(QB2)
+```
+
+Our liquid filter works on the basis of CELEX. But we haven't checked
+manually for linking /r/ or intrusive /r/. To satisfy ourselves that
+this isn't a problem, and in response to a helpful comment from the
+anonymous reviewer, we checked the non-anonymised data and determined
+that less than 1% of the tokens of [start]{.smallcaps},
+[thought]{.smallcaps}, and [nurse]{.smallcaps} occur word-finally. Of
+these, only a minority would be pre-vocalic. This is the relevant
+context for linking /r/. We think it is very unlikely that this would
+have an impact on the overall analysis.
+
+We then remove tokens with formant values more than 2.5 sd from their
+speaker's mean.
+
+```{r}
+sd_filter <- function(in_data, sd_limit = 2.5) {
+  vowels_all_summary <- in_data %>%
+    # Remove tokens at +/- sd limit (default 2.5 sd)
+    group_by(Speaker, Vowel) %>%
+    summarise(
+      #calculate the summary statistics required for the outlier removal.
+      n = n(),
+      mean_F1 = mean(F1_50, na.rm = TRUE),
+      mean_F2 = mean(F2_50, na.rm = TRUE),
+      sd_F1 = sd(F1_50, na.rm = TRUE),
+      sd_F2 = sd(F2_50, na.rm = TRUE),
+      # Calculate cut off values.
+      max_F1 = mean(F1_50) + sd_limit*(sd(F1_50)),
+      min_F1 = mean(F1_50) - sd_limit*(sd(F1_50)),
+      max_F2 = mean(F2_50) + sd_limit*(sd(F2_50)),
+      min_F2 = mean(F2_50) - sd_limit*(sd(F2_50))
+    )
+
+  #this is the main outlier filtering step.
+  out_data <- in_data %>%
+    inner_join(vowels_all_summary) %>%
+    mutate(
+      outlier = ifelse(
+        F1_50 > min_F1 &
+          F1_50 < max_F1 &
+          F2_50 > min_F2 &
+          F2_50 < max_F2, 
+        FALSE, 
+        TRUE
+      )
+    ) %>%
+    group_by(Speaker, Vowel) %>%
+    filter(outlier == FALSE) %>%
+    ungroup() %>% 
+    select(
+      -c(
+        outlier, n, mean_F1, mean_F2, sd_F1,
+        sd_F2, max_F1, min_F1, max_F2, min_F2,
+      )
+    )
+}
+
+tails_filter <- function(in_data, tails = 0.05) {
+  out_data <- in_data %>% 
+    group_by(Speaker, Vowel) %>%
+    mutate(
+      # calculate 5% tails for F1 and F2
+      F1_quant5 = quantile(F1_50, tails),
+      F2_quant5 = quantile(F2_50, tails),
+      F1_quant95 = quantile(F1_50, 1 - tails),
+      F2_quant95 = quantile(F2_50, 1 - tails),
+      # Determine tokens in 5% tails for either F1 or F2
+      outlier_quant = ifelse(
+        F1_50 > F1_quant95 | 
+          F2_50 > F2_quant95 | 
+          F1_50 < F1_quant5 | 
+          F2_50 < F2_quant5, 
+        TRUE, 
+        FALSE
+      )
+    ) %>%
+    ungroup() %>%
+    # Remove outliers
+    filter(outlier_quant == FALSE) %>%
+    # Tidy up by removing auxiliary columns generated during calculation.
+    select(-contains("quant"))
+}
+
+QB1 <- QB1 %>%
+  sd_filter(sd_limit = 2.5)
+# down to 156112
+
+QB1 <- QB1 %>%
+  tails_filter(tails = 0.05)
+# Down to 121884
+
+QB1_outlier_count <- nrow(QB1)
+
+QB2 <- QB2 %>%
+  sd_filter(sd_limit=2.5) %>%
+  tails_filter(tails = 0.05)
+
+QB2_outlier_count <- nrow(QB2)
+```
+
+Finally, in order to match [Brand et al.
+2021](https://www.sciencedirect.com/science/article/pii/S0095447021000711)
+(henceforth 'B21'), we remove [foot]{.smallcaps}. We first output the
+counts for each vowel to indicate that we have the same relative lack of
+this vowel type found in B21.
+
+```{r qb1-counts}
+vowel_counts <- function(in_data) {
+  in_data %>%
+    group_by(Vowel) %>%
+  summarise(n = n()) %>%
+  mutate(
+    rate = n / sum(.$n) * 100
+  ) %>%
+  arrange(n)
+}
+
+QB1 %>% vowel_counts()
+```
+
+[foot]{.smallcaps} makes up 2.3% of the QB1 data. This is roughly the
+rate reported in B21's [supplementary
+material](https://nzilbb.github.io/Covariation_monophthongs_NZE/Covariation_monophthongs_filtering_anon.html)
+(3%).
+
+```{r}
+QB2 %>% vowel_counts()
+```
+
+The rate is also similar for the QB2 data.
+
+We continue by removing [foot]{.smallcaps} from both data sets.
+
+```{r foot-removal}
+QB1 <- QB1 %>%
+  filter(
+    Vowel != "FOOT"
+  )
+
+QB2 <- QB2 %>%
+  filter(
+    Vowel != "FOOT"
+  )
+
+QB1_foot_count <- nrow(QB1)
+QB2_foot_count <- nrow(QB2)
+```
+
+The final filtering step, again following B21, is to remove any speakers
+who have fewer than 5 tokens for any of the remaining vowels.
+
+```{r}
+low_n_filter <- function(in_data) {
+  low_speakers <- in_data %>%
+    mutate(
+      Vowel = droplevels(Vowel)
+    ) %>% 
+    # .drop is required to get situations in which a speaker has NO tokens for
+    # a given vowel. It ensures a group for all levels of the vowel factor 
+    # (including those not present in the data for a given speaker)
+    group_by(Speaker, Vowel, .drop = FALSE) %>% 
+    count() %>%
+    ungroup() %>%
+    filter(n < 5) %>%
+    pull(Speaker)
+  
+  out_data <- in_data %>%
+    ungroup() %>%
+    filter(!Speaker %in% low_speakers)
+}
+
+QB1 <- QB1 %>%
+  low_n_filter()
+
+QB2 <- QB2 %>%
+  low_n_filter()
+
+QB1_low_n_count <- nrow(QB1)
+QB2_low_n_count <- nrow(QB2)
+```
+
+## Vowel Space Overlap Check
+
+Following B21, we check for speakers whose vowels overlap one another.
+If all vowels overlap, then we likely have some kind of systematic vowel
+tracking problem.
+
+The data from QB1 and QB2 is much cleaner than that which is present in
+the [ONZE corpus](https://www.canterbury.ac.nz/nzilbb/research/onze/)
+used in B21. Systematic vowel tracking problems are much less likely in
+our data.
+
+We talk through the steps for the QB1 data and then repeat them for QB2
+using the functions defined in the following code blocks.
+
+We first find the mean and standard deviations for each speaker for the
+first and second formant of each monophthong. We then calculate the
+distances between vowels within each speaker's vowel space.
+
+```{r}
+speaker_means <- function(in_data) {
+  out_data <- in_data %>%
+    group_by(Speaker, Vowel) %>% 
+    summarise(
+      n = n(),
+      F1_mean = mean(F1_50),
+      F2_mean = mean(F2_50),
+      F1_sd = sd(F1_50),
+      F2_sd = sd(F2_50)
+    ) 
+}
+
+speaker_distances <- function(in_data) {
+  out_data <- in_data %>%
+    mutate(
+    #calculate the euclidean distance matrix between the vowel means for each
+    #speaker
+    Dist = colMeans(
+      as.matrix(dist(cbind(F1_mean, F2_mean)))
+      )
+    ) %>%
+    ungroup() %>%
+    #calculate the mean distance across all vowels (by speaker)
+    group_by(Speaker) %>% 
+    summarise(
+      mean_dist = mean(Dist)
+    ) %>%
+    #create a new variable for use in plot labelling.
+    mutate(
+      Speaker_dist = paste(round(mean_dist, 2), Speaker)
+    ) 
+}
+```
+
+We apply the above functions and plot the distribution of distances
+between vowels for QB1.
+
+```{r qb1-distribution, warning=F, fig.cap = "Distribution of Mean Speaker Distances (QB1)"}
+QB1_means <- QB1 %>%
+  speaker_means()
+
+QB1_distances <- QB1_means %>%
+  speaker_distances()
+
+distance_plot <- function(in_data) {
+  out_plot <- in_data %>%
+    ggplot(
+      aes(x = mean_dist)
+    ) +
+    geom_density() +
+    geom_vline(
+      xintercept = mean(in_data$mean_dist), 
+      linetype = 1
+    ) +
+    geom_vline(
+      xintercept = mean(in_data$mean_dist) + 
+        2*sd(in_data$mean_dist), 
+      linetype = 2
+    ) +
+    geom_vline(
+      xintercept = mean(in_data$mean_dist) - 
+        2*sd(in_data$mean_dist), 
+      linetype = 2, 
+      colour = "red") +
+    theme_bw() +
+    labs(
+      title = "Distribution of Mean Euclidean Distance Between Vowels for Each Speaker",
+      xlab = "Mean Euclidian Distance",
+      ylab = "Density"
+    )
+}
+
+QB1_dist_plot <- QB1_distances %>%
+  distance_plot()
+
+QB1_dist_plot
+```
+
+We're going to be looking at speakers who have a mean distance between
+vowels which falls to the left of the red dashed line in Figure
+\@ref(fig:qb1-distribution).
+
+```{r qb1-outliers, fig.height = 10, fig.cap="Low Mean Distance Speakers (QB1)"}
+outlier_speakers <- function(mean_data, dist_data) {
+  out_data <- mean_data %>%
+    inner_join(dist_data) %>%
+    filter(
+    mean_dist < mean(dist_data$mean_dist) - 
+      2*sd(dist_data$mean_dist)
+  )
+}
+
+outlier_vs_plot <- function(vowel_data, outlier_data) {
+  out_plot <- vowel_data %>%
+    filter(Speaker %in% outlier_data$Speaker) %>%
+    left_join(., outlier_data, by = c("Speaker", "Vowel")) %>%
+    arrange(mean_dist) %>%
+    ggplot(
+      aes(x = F2_50, y = F1_50, colour = Vowel)
+    ) +
+    geom_point(size = 0.2, alpha = 0.5) +
+    stat_ellipse(level = 0.67) +
+    geom_text(
+      data = outlier_data, 
+      aes(
+        x = F2_mean, 
+        y = F1_mean, 
+        label = Vowel
+      ), 
+      size = 2) +
+    scale_x_reverse() +
+    scale_y_reverse() +
+    theme_bw() +
+    theme(legend.position = "none") +
+    labs(
+      title = "Low Mean Euclidean Distance Vowel Spaces"
+    )
+}
+
+
+QB1_outlier_speakers <- outlier_speakers(QB1_means, QB1_distances)
+QB1_outlier_plots <- outlier_vs_plot(QB1, QB1_outlier_speakers)
+QB1_outlier_plots + facet_wrap_paginate(
+  vars(Speaker_dist), 
+  scales="free"
+)
+```
+
+Figure \@ref(fig:qb1-outliers) has six speakers. We can instantly see
+that these are not the kind of global formant tracking failures picked
+up [in
+B21](https://nzilbb.github.io/Covariation_monophthongs_NZE/Covariation_monophthongs_filtering_anon.html#speaker_outlier_removal).
+But there are still some data issues coming up.
+
+The speaker `QB_NZ_F_466` seems to take almost any F2 value as
+acceptable measurements for their vowels. Manual inspection suggests
+systematic errors in formant tracking for this speaker, so they will be
+excluded.
+
+```{r}
+qb1_speakers_to_exclude <- c("QB_NZ_F_466")
+
+QB1 <- QB1 %>%
+  filter(
+    !Speaker %in% qb1_speakers_to_exclude
+  )
+
+QB1_outlier_vs_count <- nrow(QB1)
+```
+
+We perform the same steps for QB2:
+
+```{r,  fig.cap = "Distribution of Mean Speaker Distances (QB2)"}
+QB2_means <- QB2 %>%
+  speaker_means()
+
+QB2_distances <- QB2_means %>%
+  speaker_distances()
+
+QB2_dist_plot <- QB2_distances %>%
+  distance_plot()
+
+QB2_dist_plot
+```
+
+The distribution looks somewhat different, but not worryingly so.
+
+We look at the low mean distance speakers:
+
+```{r qb2-outliers, fig.cap="Low Mean Distance Speakers (QB2)"}
+QB2_outlier_speakers <- outlier_speakers(QB2_means, QB2_distances)
+
+# If no speakers then the plot gives error. So avoid this.
+if (nrow(QB2_outlier_speakers) > 0) {
+  QB2_outlier_plots <- outlier_vs_plot(QB2, QB2_outlier_speakers)
+  QB2_outlier_plots + facet_wrap(vars(Speaker_dist), scales="free")
+} else {
+  print("No speakers two standard deviations below mean.")
+}
+```
+
+Following the same reasoning laid out above, we keep this speaker in our
+data.
+
+```{r}
+QB2_outlier_vs_count <- nrow(QB2)
+```
+
+## Normalisation
+
+We wish to compare speakers while abstracting away from physiological
+differences. We use the Lobanov 2.0 normalisation, which was developed
+for B21, and works effectively in situations with large differences in
+token counts across vowels.[^2] We use the implementation in the
+`nzilbb.vowels` package.
+
+[^2]: For further details see
+    [here](https://nzilbb.github.io/Covariation_monophthongs_NZE/Covariation_monophthongs_analysis.html#Normalisation).
+
+```{r}
+# The Lobanov 2.0 function requires that the data be ordered with Speaker id, 
+# vowel name, F1 (Hz) and F2 (Hz) as the first four columns.
+
+QB1 <- QB1 %>%
+  # Reorder the data into the column order required by the Lobanov 2 function.
+  relocate(Speaker, Vowel, F1_50, F2_50) %>%
+  lobanov_2()
+
+QB2 <- QB2 %>%
+  relocate(Speaker, Vowel, F1_50, F2_50) %>%
+  lobanov_2()
+```
+
+## By-vowel point clouds
+
+We now produce post-filtering-and-normalisation plots.
+
+First, QB1:
+
+```{r qb1-post, fig.cap = "QB1 Formant Data After Filtering", cache=FALSE}
+QB1 %>%
+  ggplot(
+    aes(
+      x = F1_lob2,
+      y = F2_lob2,
+      colour = Gender
+    )
+  ) +
+  geom_point(alpha=0.4) +
+  facet_wrap(vars(Vowel))
+```
+
+And QB2:
+
+```{r qb2-post, fig.cap = "QB2 Formant Data After Filtering", cache=FALSE}
+QB2 %>%
+  ggplot(
+    aes(
+      x = F1_lob2,
+      y = F2_lob2,
+      colour = Gender
+    )
+  ) +
+  geom_point(alpha = 0.4) +
+  facet_wrap(vars(Vowel))
+```
+
+The vowel [thought]{.smallcaps} has the most trouble. There is a high F2
+cluster of female tokens in QB1 and of male tokens in the QB2 data.
+There is some trouble with [lot]{.smallcaps} in QB2. Visually, this only
+looks like a handful of tokens.
+
+Let's look at these
+
+```{r}
+QB2 %>% 
+  filter(
+    Vowel == "THOUGHT",
+    F2_lob2 > 1
+  ) %>% 
+  count(
+    Speaker
+  )
+```
+
+Almost all from one speaker `QB_NZ_M_126`.
+
+What about QB1?
+
+```{r}
+QB1 %>% 
+  filter(
+    Vowel == "THOUGHT",
+    F2_lob2 > 1
+  ) %>% 
+  count(
+    Speaker
+  )
+```
+
+More speakers coming up here. One, in particular, is quite strong:
+`QB_NZ_F_266`.
+
+It is easiest to filter these out.
+
+```{r}
+QB1 <- QB1 %>% 
+  filter(
+    !(Vowel == "THOUGHT" & F2_lob2 > 1)
+  )
+
+QB2 <- QB2 %>% 
+  filter(
+    !(Vowel == "THOUGHT" & F2_lob2 > 1)
+  )
+
+QB1_thought_count <- nrow(QB1)
+QB2_thought_count <- nrow(QB2)
+```
+
+## Data Save
+
+We save the data in its processed state. We relevel factor variables to
+ensure that factor levels with no tokens are not present in the data.
+
+```{r}
+QB1 <- QB1 %>% 
+  mutate(
+    across(any_of(factor_vars), droplevels),
+    Age = droplevels(Age)
+  )
+
+QB2 <- QB2 %>% 
+  mutate(
+    across(any_of(factor_vars), droplevels),
+    Age = droplevels(Age)
+  )
+
+write_rds(QB1, here('data', 'QB1.rds'))
+write_rds(QB2, here('data', 'QB2.rds'))
+```
+
+## Filtering Visualisation
+
+We visualise the filtering process as a flow chart. The initial count of
+tokens extracted from LaBB-CAT is hard coded for both QB1 and QB2 as the
+anonymised data already has stopwords and hesitations removed.
+
+First for QB1:
+
+```{r QB1-filtering-flow, fig.cap='Filtering flow chart (QB1)'}
+# Flow chart generated using the DiagrammeR package.
+QB1_flow_chart <- mermaid(
+  diagram = glue("
+  graph TB
+  
+  A(Extract data from LaBB-CAT: 707287 tokens) --> 
+  B(Filter stopwords and hesitations: {QB1_initial_count} tokens)
+  B --> C(Filter common errors: {QB1_error_count} tokens)
+  C --> D(Filter unstressed tokens and tokens preceding liquids: {QB1_stressliquid} tokens)
+  D --> E(Filter outliers: {QB1_outlier_count} tokens)
+  E --> F(Filter FOOT tokens: {QB1_foot_count} tokens)
+  F --> G(Filter low-n speakers: {QB1_low_n_count} tokens)
+  G --> H(Filter speakers with vowel space overlaps: {QB1_outlier_vs_count})
+  H --> I(Filter bad THOUGHT tokens: {QB1_thought_count})
+  
+  "),
+  height = 800
+)
+
+QB1_flow_chart
+```
+
+Now for QB2:
+
+```{r QB2-filtering-flow, fig.cap='Filtering flow chart (QB2)'}
+# Flow chart generated using the DiagrammeR package.
+QB2_flow_chart <- mermaid(
+  diagram = glue("
+  graph TB
+  
+  A(Extract data from LaBB-CAT: 287334 tokens) --> 
+  B(Filter stopwords and hesitations: {QB2_initial_count} tokens)
+  B --> C(Filter common errors: {QB2_error_count} tokens)
+  C --> D(Filter unstressed tokens and tokens preceding liquids: {QB2_stressliquid} tokens)
+  D --> E(Filter outliers: {QB2_outlier_count} tokens)
+  E --> F(Filter FOOT tokens: {QB2_foot_count} tokens)
+  F --> G(Filter low-n speakers: {QB2_low_n_count} tokens)
+  G --> H(Filter speakers with vowel space overlaps: {QB2_outlier_vs_count})
+  H --> I(Filter bad THOUGHT tokens: {QB2_thought_count})
+  
+  "),
+  height = 800
+)
+
+QB2_flow_chart
+```
+
+## Descriptive Statistics
+
+We have a quick look at the descriptive stats for the relevant data.
+
+First, the full QB1 data set:
+
+The counts below are in *tokens*.
+
+```{r}
+QB1 %>% summary()
+```
+
+Second, the QB1 data set filter to include only speakers who appear in
+both QB1 and QB2.
+
+```{r}
+QB1 %>%
+  filter(
+    Speaker %in% QB2$Speaker
+  ) %>%
+  summary()
+```
+
+Finally, the QB2 data set:
+
+```{r}
+QB2 %>% summary()
+```
+
+In tabular form:
+
+```{r}
+column_descriptions_initial <- c(
+  "Anonymised speaker code",
+  "Vowel (Wells Lexical Sets)",
+  "First formant midpoint reading (Hz)",
+  "Second formant midpoint reading (Hz)",
+  "Speaker gender (binary)",
+  "Speaker age category",
+  "Speaker ethnicity (at QB1)",
+  "Country speaker grew up",
+  "Region speaker grew up",
+  "Duration of speakers' speech (seconds)",
+  "Duration of transcript (seconds)",
+  "LaBB-CAT token identifier",
+  "Anonymised word identifier",
+  "Vowel category (DISC)",
+  "Onset of vowel token (seconds)",
+  "Offset of vowel token (seconds)",
+  "Stress code (primary, secondary, etc)",
+  "Vowel midpoint (seconds)",
+  "Previous segment (DISC)",
+  "Following segment (DISC)",
+  "Utterance articulation rate",
+  "Utterance speech rate",
+  "Vowel duration (seconds)",
+  "Following segment category",
+  "First formant midpoint reading (Lobanov 2.0)",
+  "Second formant midpoint reading (Lobanov 2.0)"
+)
+
+postfilter_table <- tibble(
+  Name = names(QB1),
+  Type = reframe(QB1, across(everything(), class))[2,] %>% as_vector(),
+  Description = column_descriptions_initial
+)
+
+postfilter_table <- postfilter_table %>% 
+  gt() %>% 
+  tab_header(
+    title = "Variables after preprocessing"
+  )
+
+postfilter_table
+```
+
+### Output for paper {.tabset}
+
+#### Tables
+
+The article requires a table of token counts and a histogram of speakers
+by gender and age group.
+
+```{r all-qb1-table}
+counts_data <- function(in_data) {
+  out_data <- in_data %>% 
+    group_by(
+      Vowel
+    ) %>% 
+    summarise(
+      Tokens = n()
+    ) %>% 
+    mutate(
+      `%` = signif(Tokens/sum(.$Tokens) * 100, 2)
+    ) %>% 
+    arrange(
+      as.character(Vowel)
+    ) %>% 
+    bind_rows(
+      tibble(
+        "Vowel" = c("Total"), "Tokens" = nrow(in_data), "%" = 100
+      )
+    ) 
+}
+
+QB1_counts <- counts_data(QB1)
+  
+QB1_counts %>% 
+  kable(caption = "All QB1 Speakers") %>% 
+  kable_paper(bootstrap_options = "striped", full_width = F)
+```
+
+We also produce a table for the QB1 and QB2 data of the speakers in both
+corpora.
+
+```{r}
+QB1_sub <- QB1 %>%
+  filter(
+    Speaker %in% QB2$Speaker
+  )
+
+QB1_sub_counts <- counts_data(QB1_sub)
+QB2_counts <- counts_data(QB2)
+
+QBBoth_counts <- bind_cols(
+  QB1_sub_counts %>% 
+    rename(
+      `Tokens (QB1)` = Tokens,
+      `% (QB1)` = `%`
+    ), 
+  QB2_counts %>% 
+    select(-Vowel) %>% 
+    rename(
+      `Tokens (QB2)` = Tokens,
+      `% (QB2)` = `%`
+    )
+)
+
+QBBoth_counts %>% 
+  kable(caption = "Speakers in Both Corpora") %>% 
+  kable_paper(bootstrap_options = "striped", full_width = F) %>% 
+  row_spec(11, bold=T)
+```
+
+#### Histograms
+
+We generate distributions of speakers by age and gender.
+
+```{r}
+QB1 %>% 
+  group_by(Age, Gender) %>% 
+  summarise(
+    speakers = n_distinct(Speaker)
+  ) %>% 
+  ggplot(
+    aes(
+      x = Age,
+      y = speakers,
+      fill = Gender,
+    )
+  ) +
+  geom_col() +
+  scale_fill_manual(values = c("F" = "#E69F00", "M" = "#009E73")) +
+  labs(
+    title = "QB1 Distribution of Speakers by Age and Gender"
+  )
+```
+
+# Overall Pattern of Change
+
+Interpretation of our comparisons between QB1 and QB2 rely on a sense of
+the overall pattern of change in the community. In order to do this, we
+first fit generalised additive mixed models (GAMMs) using all speakers
+at QB1 (not just the speakers who are in both QB1 and QB2). This gives
+us a sense of patterns in change across apparent time. We then look at
+changes in the pattern in real time (for the speakers who are in both
+QB1 and QB2).
+
+## GAMMs on all QB1 Speakers
+
+We fit models following the pattern of B21: a model is fit to each vowel
+and formant, i.e., separate models for [dress]{.smallcaps} F1,
+[dress]{.smallcaps} F2, [nurse]{.smallcaps} F1, etc.
+
+### Model Fit and Check {.tabset}
+
+#### Fit {#model-fit}
+
+These models predict Lobanov 2.0 normalised formant values with a
+parametric term for gender and a four-knot smooth for age category at
+both levels of gender. We also fit articulation rate as a control
+variable and random effect intercepts for speaker and word.
+
+The model structure matches B21 with two exceptions. First, B21 uses a
+difference smooth structure for gender. We instead fit a separate smooth
+for the males and females in the data. The resulting p-values tell us
+whether the smooth for the given gender is significant rather than
+whether the models for males and females are significantly different
+*from one another*. Second, QB data does not have year of birth.
+Instead, we have age categories. We fit a smooth through the age
+categories with four knots rather than the default 10.
+
+The other difference is that we fit the model using a scaled t
+distribution as our error model. This model structure allows for heavier
+tails in the response variable. This is often the case with formant data
+and models which were fit using the standard normal error distribution
+performed worse than the models reported here.
+
+The pattern in the code block below, of nesting data, fitting models,
+and extracting intercepts, is set out
+[here](https://lingmethodshub.github.io/content/R/animated_vowel_plots_tutorial/).
+
+We'll need a numeric representation of the age categories and to convert
+speaker, gender, and word to factor variables.
+
+```{r}
+# Check that age values in the correct order.
+levels(QB1$Age)
+# output: "18-25" "26-35" "36-45" "46-55" "56-65" "66-75" "76-85" "85+"   "na" 
+# Correct!
+
+# Convert to integer and do to factor conversions for speaker and word.
+QB1 <- QB1 %>%
+  mutate(
+    age_category_numeric = as.integer(Age),
+    Speaker = as.factor(Speaker),
+    Gender = as.factor(Gender),
+    Word = as.factor(Word)
+  )
+```
+
+We count how many speakers are in each category to check whether any age
+categories should be excluded:
+
+```{r}
+QB1 %>%
+  group_by(Age) %>%
+  summarise(
+    speaker_count = n_distinct(Speaker)
+  )
+```
+
+We've only got one 85+ speaker, so we remove the 85+ category.
+
+```{r model-fit-qb1, eval=FALSE}
+QB1_models <- QB1 %>%
+  filter(
+    Age != "85+"
+  ) %>%
+  select(
+    -F1_50, -F2_50
+  ) %>%
+  pivot_longer(
+    cols = F1_lob2:F2_lob2,
+    names_to = "formant_type",
+    values_to = "formant_value"
+  ) %>%
+  group_by(Vowel, formant_type) %>%
+  nest() %>%
+  mutate(
+    model = map(
+      data,
+      ~ bam(
+          formant_value ~ Gender + s(age_category_numeric, k = 4, by = Gender) + # main effects
+            s(articulation_rate, k = 3) + # control vars
+            s(Speaker, bs='re') + s(Word, bs='re'), # random effects
+          discrete = TRUE,
+          nthreads = 16, # This value is too high for most situations.
+          family = mgcv::scat(link ='identity'),
+          data = .x
+      )
+    ),
+    # Extract p-values. Comment out these lines if you are still experimenting
+    # with getting the models to fit. Generating summaries can take as long as
+    # fitting a GAM.
+    model_smooth_pvs = map(
+      model,
+      ~ summary(.x)$s.pv
+    ),
+    genderF_smooth_pv = map_dbl(
+      model_smooth_pvs,
+      ~ .x[[1]]
+    ),
+    genderM_smooth_pv = map_dbl(
+      model_smooth_pvs,
+      ~ .x[[2]]
+    )
+  )
+
+write_rds(QB1_models, here('models', 'QB1_models.rds'), compress = "gz")
+```
+
+```{r model-load, include=FALSE}
+QB1_models <- read_rds(here('models', 'QB1_models.rds'))
+```
+
+#### Checks
+
+The following code block outputs model checks for each of the
+vowel-formant models by means of a qqplot.
+
+```{r, dpi=100}
+walk2(
+  str_c(QB1_models$Vowel, '_', QB1_models$formant_type),
+  QB1_models$model,
+  ~ {
+    qq.gam(.y, sub=.x)
+  }
+)
+```
+
+Fuller output is available by using the following code block, but the
+output makes the html excessively large.
+
+```{r, eval=FALSE, dpi=100}
+walk2(
+  str_c(QB1_models$Vowel, '_', QB1_models$formant_type),
+  QB1_models$model,
+  ~ {
+    print(.x)
+    gam.check(.y, sub=.x)
+  }
+)
+```
+
+There is no evidence of serious problems with model fit here.
+
+### Plots
+
+We generate predictions from the models in order plot them. We generate
+predictions for each gender and each age category. At the same time, we
+collect p-value information for the formant smooths for each gender from
+the model summaries.
+
+```{r}
+to_predict <- list(
+  "age_category_numeric" = seq(from=1, to=7, by=1), # All age categories.
+  "Gender" = c("M", "F")
+) 
+
+QB1_preds <- QB1_models %>%
+  mutate(
+    prediction = map(
+      model,
+      ~ get_predictions(model = .x, cond = to_predict, print.summary = FALSE)
+    )
+  ) %>%
+  select(
+    Vowel, formant_type, prediction, genderF_smooth_pv, genderM_smooth_pv
+  ) %>%
+  unnest(prediction) %>%
+  # This step is important. It ensures that, when we plot,
+  # arrows go from oldest to youngest speakers.
+  arrange(
+    desc(age_category_numeric)
+  )
+
+QB1_preds <- QB1_preds %>%
+  mutate(
+    p_value = if_else(Gender == "F", genderF_smooth_pv, genderM_smooth_pv)
+  ) %>%
+  select( # Remove unneeded variables
+    -articulation_rate,
+    -genderF_smooth_pv,
+    -genderM_smooth_pv
+  ) %>%
+  pivot_wider( # Pivot
+    names_from = formant_type,
+    values_from = c(fit, p_value, CI)
+  ) %>%
+  rename(
+    F1_lob2 = fit_F1_lob2,
+    F2_lob2 = fit_F2_lob2
+  ) %>%
+  mutate(
+    # A variable for statistical significance of smooths - either F1 or F2 
+    # significant with bonferonni correction.
+    is_sig = p_value_F1_lob2 < 0.025 | p_value_F2_lob2 < 0.025
+  )
+```
+
+We look at the p-values for each smooth.
+
+```{r}
+QB1_preds %>% 
+  group_by(Vowel, Gender) %>% 
+  summarise(
+    F1=first(p_value_F1_lob2), 
+    F2=first(p_value_F2_lob2),
+    is_sig = first(is_sig)
+  ) %>%
+  kable() %>%
+  kable_styling(full_width = TRUE)
+```
+
+The column `is_sig` in the above table tracks significance using a
+Bonferroni correction of the 0.05 significance threshold. The basic idea
+is that the hypothesis we are 'testing', for each vowel and gender, is
+that the vowel moves in the vowel space as we go up the age categories.
+This combines *two* p-values: the p-value for the F1 model and the
+p-value for the F2 model. Consequently, we divide 0.05 by 2, and test
+whether the F1 or the F2 model reaches this new, lower, threshold.
+
+In all cases where a threshold is adjusted, it is worth looking at what
+would happen if an alternative threshold were used. For instance, if we
+had not used the Bonferroni correction, we see that [lot]{.smallcaps}
+would come out as significant for female speakers.
+
+We now plot these
+
+```{r}
+# Tol colours, designed to be colour blind friendly.
+vowel_colours <- c(
+  DRESS = "#777777", # This is the 'bad data' colour for maps 
+  FLEECE = "#882E72",
+  GOOSE = "#4EB265",
+  KIT = "#7BAFDE",
+  LOT = "#DC050C",
+  TRAP = "#878100", # "#F7F056",
+  START = "#1965B0",
+  STRUT = "#F4A736",
+  THOUGHT = "#72190E",
+  NURSE = "#E8601C",
+  FOOT = "#5289C7"
+)
+
+# Some alternative vowel colours
+# vowel_colours <- c(
+#   DRESS = "#9590FF",
+#   FLEECE = "#D89000",
+#   GOOSE = "#A3A500",
+#   KIT = "#39B600",
+#   LOT = "#00BF7D",
+#   NURSE = "#00BFC4",
+#   START = "#00B0F6",
+#   STRUT = "#F8766D",
+#   THOUGHT = "#E76BF3",
+#   TRAP = "#FF62BC"
+# )
+
+# We use the following vector to reorder the vowel vector and thus control
+# the order in which vowels appear in the legend of our plots.
+vowels = c(
+  "FLEECE", "GOOSE", "DRESS", "NURSE", "THOUGHT", "KIT", "TRAP", "LOT", "STRUT",
+  "START"
+)
+
+# Set up some functions for often-repeated plotting code.
+
+qb_mapping <- aes(
+  x = F2_lob2,
+  y = F1_lob2,
+  colour = Vowel,
+  label = vowel_lab,
+  group = Vowel
+)
+
+vs_layers <- function(in_plot) {
+  out_plot <- in_plot +
+    geom_path(
+      arrow = arrow(
+          ends = "last", 
+          type="closed",
+          length = unit(2, "mm")
+        )
+    ) +
+    geom_point(
+      data = ~ .x %>% 
+        filter(
+          !vowel_lab == ""
+        ),
+      show.legend = FALSE,
+      size = 1.5
+    ) +
+    geom_label_repel(
+      min.segment.length = 0, seed = 42,
+      show.legend = FALSE,
+      fontface = "bold",
+      size = 10 / .pt,
+      label.padding = unit(0.2, "lines"),
+      alpha = 1,
+      max.overlaps = Inf
+    )
+}
+
+vs_scales <- function(in_plot) {
+  out_plot <- in_plot +
+    scale_x_reverse(expand = expansion(mult = 0.2), position = "top") +
+    scale_y_reverse(expand = expansion(mult = 0.1), position = "right") +
+    #scale_linetype_manual(values = c('FALSE' = "dotted", 'TRUE' = "solid")) +
+    #scale_linewidth_manual(values = c('FALSE' = 0.5, 'TRUE' = 1)) +
+    scale_colour_manual(values = vowel_colours) +
+    facet_grid(
+      cols = vars(Gender)
+    )
+}
+
+vs_theme <- function(in_plot) {
+  out_plot <- in_plot + 
+    labs(
+      x = "F2 (normalised)",
+      y = "F1 (normalised)"
+    ) +
+    theme_bw() +
+    theme(
+      plot.title = element_text(face="bold"),
+      legend.position="none"
+    )
+}
+
+add_labels <- function(in_data, is_sig=FALSE) {
+  # if is_sig=TRUE assume there is a column called is_sig
+  # which says whether a smooth is significant.
+  out_data <- in_data %>%
+    group_by(Vowel, Gender) %>%
+    mutate(
+      vowel_lab = if_else(
+        age_category_numeric == max(age_category_numeric),
+        Vowel,
+        ""
+      )
+    ) %>% 
+    ungroup()
+  
+    if (is_sig) {
+      out_data <- out_data %>% 
+        mutate(
+          vowel_lab = if_else(
+            is_sig,
+            str_c(vowel_lab, "*"),
+            str_c(vowel_lab, " (n.s.)")
+          ),
+          vowel_lab = if_else(
+            vowel_lab %in% c("*", " (n.s.)"),
+            "",
+            vowel_lab
+          )
+        )
+    }
+  
+  out_data
+}
+
+qb_plot <- function(in_data) {
+  out_plot <- in_data %>% 
+    add_labels() %>% 
+    ggplot(
+      mapping = qb_mapping
+    ) %>% 
+    vs_layers() %>% 
+    vs_scales() %>% 
+    vs_theme()
+}
+```
+
+```{r}
+# The complexity of this code block is due to addition
+# of non-significant smooths to the plot.
+all_plot <- QB1_preds %>%
+  add_labels(is_sig=TRUE) %>% 
+  ggplot(
+    mapping = aes(
+      x = F2_lob2,
+      y = F1_lob2,
+      colour = Vowel,
+      label = vowel_lab,
+      group = Vowel,
+      linewidth = is_sig,
+      alpha = is_sig
+    )
+  ) %>% 
+  vs_layers() %>% 
+  vs_scales() %>% 
+  vs_theme() +
+  scale_linewidth_manual(
+    values = c(
+      'TRUE' = 1, 'FALSE' = 0.25
+    )
+  ) +
+  scale_alpha_manual(
+    values = c(
+      'TRUE' = 1, 'FALSE' = 0.5
+    )
+  ) +
+  labs(
+    title = "QB1 Change Over Apparent Time by Gender",
+    subtitle = "From 76–85 to 18-25",
+  )
+
+all_plot
+```
+
+We also want to see the detail of the high front vowels in the female
+speakers (as hard to see in these plots).
+
+```{r}
+detail_plot <- QB1_preds %>%
+  filter(
+    Vowel %in% c("FLEECE", "GOOSE", "DRESS", "NURSE", "KIT"),
+  ) %>%
+  filter(is_sig) %>% 
+  qb_plot() +
+  labs(
+    title = "QB1 Change Over Apparent Time by Gender",
+    subtitle = "From 76–85 to 18-25",
+  )
+
+detail_plot 
+```
+
+We can look at this plot interactively, as follows:
+
+```{r}
+plotly_plot <- QB1_preds %>%
+ # for labelling, we restore the original Age variable.
+ left_join(
+   QB1 %>% 
+     select(Age, age_category_numeric) %>% 
+     distinct()
+ ) %>% 
+ mutate(
+   Vowel = factor(Vowel, levels = vowels),
+   Age = droplevels(Age)
+ ) %>%
+ ggplot(
+   aes(
+     x = F2_lob2,
+     y = F1_lob2,
+     colour = Vowel,
+     label = Vowel,
+     group = Vowel,
+     alpha = is_sig,
+     frame = Age
+   )
+ ) +
+ geom_text(
+   size = 3
+ ) +
+ scale_x_reverse(expand = expansion(mult = 0.1), position = "top") +
+ scale_y_reverse(position = "right") +
+ scale_alpha_manual(values = c('FALSE' = 0.4, 'TRUE' = 1)) +
+ scale_colour_manual(values = vowel_colours) +
+ facet_grid(
+   cols = vars(Gender)
+ ) +
+ labs(
+   x = "F2 (normalised)",
+   y = "F1 (normalised)"
+ ) +
+ theme_bw() +
+ theme(plot.title = element_text(face="bold"))
+
+
+ggplotly(plotly_plot) %>% layout(height=900, showlegend=FALSE)
+```
+
+We also need to plot these with the results from B21. We plot both male
+and female speakers. All smooths were found to be significant.
+
+Here we just copy from the function defined above and modify variable
+names.
+
+```{r}
+b21_preds <- read_rds(here('data', 'mod_pred_yobgender_values.rds'))
+
+b21_preds <- b21_preds %>%
+  select(-Speech_rate, -Word, -ll, -ul) %>%
+  # filter(participant_year_of_birth > 1925) %>% #Turn on to restrict to speakers overlapping in age with QB.
+  pivot_wider(
+    names_from = Formant,
+    values_from = c(fit, CI)
+  ) %>% 
+  mutate(
+    Vowel = factor(Vowel, levels = vowels),
+    Gender = factor(Gender, levels = c("M", "F"))
+  ) %>% 
+  group_by(Vowel, Gender) %>%
+    # Again, important to use _maximum_ here to get the oldest speakers to be
+    # our _first_ observation. (the origin of the paths in the plot)
+    mutate(
+      vowel_lab = if_else(
+        participant_year_of_birth == min(participant_year_of_birth),
+        str_c(Vowel, "*"),
+        ""
+      )
+    ) %>% 
+    ungroup()
+
+min_year <- min(b21_preds$participant_year_of_birth)
+max_year <- max(b21_preds$participant_year_of_birth)
+
+b21_plot <- b21_preds %>%
+  ggplot(
+    aes(
+      x = fit_F2,
+      y = fit_F1,
+      colour = Vowel,
+      label = vowel_lab,
+      group = Vowel
+    )
+  ) %>% 
+  vs_layers() %>% 
+  vs_scales() %>% 
+  vs_theme() +
+  labs(
+    title = "ONZE Change Over Real Time by Gender",
+    subtitle = glue("Year of birth {min_year} to {max_year}")
+  )
+
+b21_plot
+```
+
+### PCA
+
+It is also useful to get a sense of what PCA looks like on the complete
+QB1 corpus.
+
+```{r}
+QB1_intercepts_complete <- QB1_models %>% 
+  mutate(
+    random_intercepts = map(
+      model,
+      ~ get_random(.x)$`s(Speaker)` %>% 
+        as_tibble(rownames = "Speaker") %>%
+        rename(intercept = value)
+    )
+  ) %>% 
+  select(
+    Vowel, formant_type, random_intercepts
+  ) %>% 
+  unnest(random_intercepts) %>% 
+  arrange(as.character(Vowel))
+
+
+QB1_intercepts_complete <- QB1_intercepts_complete %>%
+  # Create a column to store our eventual column names
+  mutate(
+    # Combine the 'vowel' and 'formant_type' columns as a string.
+    vowel_formant = str_c(Vowel, '_', formant_type),
+    # Remove '_lob2' for cleaner column names
+    vowel_formant = str_replace(vowel_formant, '_lob2', '')
+  ) %>%
+  ungroup() %>% 
+  # Remove old 'vowel' and 'formant_type' columns
+  select(-c(Vowel, formant_type)) %>%
+  # Make data 'wider', by...
+  pivot_wider(
+    names_from = vowel_formant, # naming columns using 'vowel_formant'...
+    values_from = intercept # and values from intercept column
+  )
+```
+
+This step can reveal missing values if a speaker has not been able to
+have an intercept estimated in a particular model.
+
+Are there missing values?
+
+```{r}
+QB1_intercepts_complete[
+  which(is.na(QB1_intercepts_complete), arr.ind=TRUE)[,1],
+  ]
+```
+
+We remove this speaker.
+
+```{r}
+QB1_intercepts_complete <- QB1_intercepts_complete %>% 
+  filter(
+    !is.na(START_F1)
+  )
+```
+
+Let's look at a pairwise correlation plot:
+
+```{r}
+QB1_intercepts_complete %>% 
+  select(-Speaker) %>% 
+  as.matrix() %>% 
+  cor() %>% 
+  corrplot()
+```
+
+Generating confidence intervals for our PCA by bootstrapping takes a bit
+of time. So we load in previous computer results to speed up the
+knitting of this document.
+
+```{r, eval=FALSE}
+QB1_pca_complete <- pca_test(
+  QB1_intercepts_complete %>% select(-Speaker),
+  n = 1000
+)
+
+write_rds(
+  QB1_pca_complete, 
+  here('models', 'QB1_pca_complete.rds'), 
+  compress="gz"
+)
+```
+
+```{r, include=FALSE}
+QB1_pca_complete <- read_rds(here('models', 'QB1_pca_complete.rds'))
+```
+
+#### How Many PCs?
+
+```{r}
+plot_variance_explained(QB1_pca_complete, pc_max = 6)
+```
+
+We'll look at the first four PCs, as they appear outside the NULL
+distribution. However, PC2 through PC4's confidence intervals intersect.
+We will need to filter out bootstrapped analyses to deal with PC
+instability.
+
+#### Loading Plots
+
+First *PC1*:
+
+```{r qb1-comp-pc1, fig.cap = "Index loadings for PC1 (QB1).",  cache=FALSE}
+plot_loadings(QB1_pca_complete, pc_no=1)
+```
+
+**NB:** high PC1 scores are *conservative* with respect to the New
+Zealand English short vowel shift.
+
+Now, *PC2*:
+
+```{r qb1-comp-pc2, fig.cap = "Index loadings for PC2 (QB1).",  cache=FALSE}
+plot_loadings(QB1_pca_complete, pc_no=2, filter_boots=TRUE)
+```
+
+PC2 represents the [thought]{.smallcaps}, [start]{.smallcaps},
+[strut]{.smallcaps} relationship found in ONZE data by B21 (although
+without [thought]{.smallcaps} F2 involved.
+
+We now turn to PC3 and PC4.
+
+```{r qb1-comp-pc3, fig.cap = "Index loadings for PC3 (QB1).",  cache=FALSE}
+plot_loadings(QB1_pca_complete, pc_no=3, filter_boots=TRUE)
+```
+
+```{r qb1-comp-pc4, fig.cap = "Index loadings for PC4 (QB1).",  cache=FALSE}
+plot_loadings(QB1_pca_complete, pc_no=4, filter_boots=TRUE)
+```
+
+We are starting to get PCs which only reliably capture single variables
+from our original data. We'll ignore PC3 and PC4.
+
+#### Export scores
+
+We here export speaker scores for a distinct project.
+
+```{r}
+QB1_comp_pc_scores <- prcomp(
+  QB1_intercepts_complete %>% select(-Speaker),
+  scale=TRUE
+)$x
+
+QB1_comp_pc_scores <- as_tibble(QB1_comp_pc_scores) %>% 
+  mutate(
+    Speaker = QB1_intercepts_complete$Speaker
+  ) %>% 
+  relocate(Speaker)
+
+write_rds(QB1_comp_pc_scores, here('data', 'QB1_complete_scores.rds'))
+write_csv(QB1_comp_pc_scores, here('data', 'QB1_complete_scores.csv'))
+```
+
+## GAMMs to determine differences between QB1 and QB2
+
+In order to work out the differences between QB1 and QB2, we restrict
+ourselves to the speakers which are in both data sets. Since the
+speakers of QB2 are a subset of the speakers of QB1, we can simple
+filter out the speakers who are not in QB2 from the QB1 data set and
+produce a data set with data from both corpora.
+
+### Model Fit and Check {.tabset}
+
+We now fit a series of GAMMs to determine the whether the smooths or
+intercept terms *differ* between QB1 and QB2.
+
+#### Fit
+
+We will evaluate *difference smooths*, which require us to represent
+corpus as an ordered factor. The eventual fitting of difference smooths
+is determined by setting the `corpus` variable to an ordered factor with
+treatment contrasts.
+
+```{r}
+QB2 <- QB2 %>%
+  mutate(
+    age_category_numeric = as.integer(Age),
+    Speaker = as.factor(Speaker),
+    Gender = as.factor(Gender),
+    Word = as.factor(Word)
+  )
+
+QBBoth <- bind_rows(
+  "qb1" = QB1 %>%
+    filter(
+      Speaker %in% QB2$Speaker
+    ) %>%
+    # Removing Age due to difficulty in binding ordered factors
+    select(-Age),
+  "qb2" = QB2 %>%
+    select(-Age),
+  .id = "corpus"
+)
+
+QBBoth <- QBBoth %>%
+  mutate(
+    corpus = as.ordered(corpus)
+  )
+
+contrasts(QBBoth$corpus) <- "contr.treatment"
+```
+
+As with our previous models, we lengthen the data so that there is a row
+for each formant type.
+
+The model structure will be
+`formant_value ~ corpus + s(age_category_numeric) +`
+`s(age_category_numeric, by = corpus) +  s(transcript_articulation_rate) +`
+`s(Speaker, bs='re') + s(Word, bs='re')`. That is, a smooth for
+articulation rate as a control, random intercepts for speaker and word,
+and a difference smooth structure to investigate the affect of corpus on
+the age category smooth. We will fit each gender separately.
+
+```{r, eval=FALSE}
+QBBoth_models <- QBBoth %>%
+  filter(
+    age_category_numeric != 8
+  ) %>%
+  select(
+    -F1_50, -F2_50
+  ) %>%
+  pivot_longer(
+    cols = F1_lob2:F2_lob2,
+    names_to = "formant_type",
+    values_to = "formant_value"
+  ) %>%
+  group_by(Vowel, formant_type, Gender) %>%
+  nest() %>%
+  mutate(
+    model = map(
+      data, 
+      ~ bam(
+          formula = formant_value ~ corpus + s(age_category_numeric, k = 4) +
+            s(age_category_numeric, by = corpus, k = 4) +  
+            s(articulation_rate, k = 3) + s(Speaker, bs='re') + s(Word, bs='re'),
+          family = mgcv::scat(link ='identity'),
+          discrete = TRUE,
+          nthreads = 16,
+          data = .x
+      )
+    ),
+    model_summary = map(model, summary),
+    base_s_pv = map_dbl(model_summary, ~ .x$s.pv[[1]]),
+    diff_s_pv = map_dbl(model_summary, ~ .x$s.pv[[2]]),
+    p_pv = map_dbl(model_summary, ~ .x$p.pv[[2]]) #parametric term for corpus p value
+  )
+
+# Save models
+write_rds(QBBoth_models, here('models', 'QBBoth_models.rds'), compress="gz")
+```
+
+```{r, include=FALSE}
+QBBoth_models <- read_rds(here('models', 'QBBoth_models.rds'))
+```
+
+#### Model Checks
+
+The following code block outputs model checks for each of the
+vowel-formant models.
+
+```{r, dpi=100}
+walk2(
+  str_c(
+    QBBoth_models$Vowel, '_', 
+    QBBoth_models$formant_type, '_', 
+    QBBoth_models$Genderdocs
+  ),
+  QBBoth_models$model,
+  ~ {
+    qq.gam(.y, sub=.x)
+  }
+)
+```
+
+Fit is acceptable. We can see evidence of formant tracking errors, but
+this is hard to avoid. We also see that the estimated degrees of freedom
+are getting close to `k'`. Again, this is hard to avoid given the amount
+of data we have.
+
+### Plots {.tabset}
+
+#### Parametric Difference
+
+There are two coefficients of interest to us for each of these models.
+The parametric difference term gives us an estimate of the overall
+difference in height between two smooths. We look at these terms first:
+
+```{r, parametric-difference, fig.cap = "Significant differences in parametric term between QB1 and QB2."}
+QBBoth_models <- QBBoth_models %>%
+  mutate(
+    QB1_parametric = map_dbl(
+      model_summary, 
+      ~ .x$p.coef[[1]]
+    ),
+    QB2_parametric = map2_dbl(
+      model_summary, 
+      QB1_parametric, 
+      ~ .y + .x$p.coef[[2]]
+    )
+  )
+
+parametric_difference_plot <- QBBoth_models %>%
+  select(
+    Vowel, formant_type, Gender, p_pv, QB1_parametric, QB2_parametric
+  ) %>%
+  pivot_longer(
+    cols = QB1_parametric:QB2_parametric,
+    names_to = "corpus",
+    values_to = "parametric"
+  ) %>%
+  mutate(
+    corpus = str_sub(corpus, end = 3L),
+    formant_type = str_sub(formant_type, end = 2L)
+  ) %>%
+  filter(
+    p_pv < 0.025 | corpus == "QB1"
+  ) %>%
+  select(
+    - p_pv
+  ) %>%
+  pivot_wider(
+    names_from = formant_type,
+    values_from = parametric
+  ) %>%
+  # LOCF for missing QB2 values (to give them the QB1 value for non-sig diffs).
+  fill(
+    F1:F2,
+    .direction = "down" 
+  ) %>%
+  mutate(
+    Gender = factor(Gender, levels = c("M", "F"))
+) %>%
+  ggplot(
+    aes(
+      x = F2,
+      y = F1,
+      colour = corpus,
+      group = Vowel,
+      label = Vowel
+    )
+  ) +
+  # geom_path(
+  #   arrow = arrow(
+  #       ends = "last", 
+  #       type="closed",
+  #       length = unit(1, "mm")
+  #   )
+  # ) +
+  geom_text(size = 3, alpha = 1, fontface="bold") +
+  scale_x_reverse(position = "top", limits = c(2, -2.5)) +
+  scale_y_reverse(position = "right") +
+  #scale_colour_manual(values = vowel_colours) +
+  scale_colour_manual(values = c("QB1" = "#E69F00", "QB2" = "#009E73")) +
+  facet_grid(cols = vars(Gender)) + 
+  labs(
+    title = "Statistically Significant Changes in Parametric Term, QB1 v. QB2",
+    subtitle = "Alpha = 0.025",
+    y = "F1 (normalised)",
+    x = "F2 (normalised)",
+    colour = "Corpus"
+  ) +
+  theme(
+    plot.title = element_text(face="bold"),
+  )
+
+parametric_difference_plot
+```
+
+Figure \@ref(fig:parametric-difference) shows the difference in overall
+height or backness between the two corpora if they are statistically
+significant. We apply a small Bonferroni correction, assuming that we
+are treating each difference in *either* F1 or F2 for each vowel as our
+hypothesis. The plot shows the predicted values for each vowel in QB1 in
+orange and any significant departures from this in the QB2 data in
+green.
+
+For the female speakers, we see a slight backing and lowering of
+[fleece]{.smallcaps}, a raising a backing of [dress]{.smallcaps},
+raising of [thought]{.smallcaps} and [nurse]{.smallcaps}, lowering of
+[goose]{.smallcaps}, and very slight fronting of [strut]{.smallcaps}.
+
+#### Individual Smooths
+
+We look at the smooths where there is either a significant parametric or
+difference smooth term.
+
+```{r, dpi=100}
+sig_models <- QBBoth_models %>% 
+  filter(p_pv < 0.025 | diff_s_pv < 0.025)
+
+walk2(
+  sig_models$model, 
+  str_c(sig_models$Vowel, '_', sig_models$formant_type, '_', sig_models$Gender),
+  ~ plot_smooth(
+    .x, 
+    view = "age_category_numeric", 
+    plot_all = 'corpus', 
+    main = .y,
+    xlab = "QB1 age category from youngest (18-25) to oldest (76-85)"
+  )
+)
+```
+
+It is worth noting that difference in the parametric term can be due to
+either across the board change *or* age grading effects. For instance
+[nurse]{.smallcaps} F1 in the female speakers indicates a kind of age
+grading, in which the youngest speakers have become more conservative.
+[fleece]{.smallcaps} F1 in the female speakers, on the other hand, is an
+example of an across the board change between the first and second
+recordings.
+
+```{r}
+QBBoth %>% 
+  filter(
+    age_category_numeric == 1,
+    Gender == "F"
+  ) %>% 
+  pull(Speaker) %>% 
+  unique()
+```
+
+The portion of this plot in the first age category is operating off
+*two* speakers.
+
+# Analysis 1: Speaker Change Between QB1 and QB2
+
+This section repeats the B21 style analysis on the subset of the QB1
+data restricted to speakers in QB2 and to the QB2 data. It shows that
+there is consistency in the vowels grouped together when applying the
+method to ONZE (in B21), and QB1, and QB2 (in this paper). It also shows
+that speaker scores are strongly correlated across the QB1 and QB2
+analyses. This indicates that the structure picked out by PCA applied to
+F1 and F2 midpoint readings is stable across the span of time covered by
+QB1 and QB2.
+
+At this point it is good to free up some RAM by removing the models from
+the previous sections.
+
+```{r}
+rm(QB1_models, QBBoth_models)
+```
+
+## GAMM Modelling {.tabset}
+
+We need to rerun models of the sort fit in Section \@ref(model-fit), but
+this time with just the speakers who are in QB1 and QB2. The following
+code block does this for both the QB1 and QB2 data.
+
+### Model Fit
+
+```{r analysis-1-fit, eval=FALSE}
+Analysis1_models <- QBBoth %>%
+  filter(
+    age_category_numeric != 8
+  ) %>%
+  select(
+    -F1_50, -F2_50
+  ) %>% 
+  pivot_longer(
+    cols = F1_lob2:F2_lob2,
+    names_to = "formant_type",
+    values_to = "formant_value"
+  ) %>%
+  group_by(corpus, Vowel, formant_type) %>%
+  nest() %>%
+  mutate(
+    model = map(
+      data, 
+        ~ bam(
+          formant_value ~ Gender + s(age_category_numeric, k = 4, by = Gender) + # main effects
+            s(articulation_rate, k = 3) + # control vars
+            s(Speaker, bs='re') + s(Word, bs='re'), # random effects
+          discrete = TRUE,
+          nthreads = 16, # This value is too high for most situations.
+          family = mgcv::scat(link ='identity'),
+          data = .x
+      )
+    ),
+    model_summary = map(model, summary),
+    random_intercepts = map(
+      model,
+      ~ get_random(.x)$`s(Speaker)` %>% 
+        as_tibble(rownames = "Speaker") %>%
+        rename(intercept = value)
+    )
+  )
+
+# Save models
+write_rds(
+  Analysis1_models, 
+  here('models', 'Analysis1_models.rds'), 
+  compress="gz"
+)
+```
+
+```{r, include=FALSE}
+Analysis1_models <- read_rds(here('models', 'Analysis1_models.rds'))
+```
+
+### Model Checks
+
+```{r, dpi=100}
+walk2(
+  str_c(
+    Analysis1_models$corpus, '_',
+    Analysis1_models$Vowel, '_', 
+    Analysis1_models$formant_type
+  ),
+  Analysis1_models$model,
+  ~ {
+    qq.gam(.y, sub=.x)
+  }
+)
+```
+
+Same basic story as above. High values of [lot]{.smallcaps} and
+[thought]{.smallcaps} are a struggle.
+
+### Plots
+
+```{r, dpi=100}
+walk2(
+  Analysis1_models$model, 
+  str_c(Analysis1_models$corpus, '_', Analysis1_models$Vowel, '_', Analysis1_models$formant_type),
+  ~ plot_smooth(
+    .x, 
+    view = "age_category_numeric", 
+    plot_all = 'Gender', 
+    main = .y,
+    xlab = "Age category from youngest (18-25) to oldest (76-85)"
+  )
+)
+```
+
+It is worth noting that these models are less powerful than the full QB1
+data set models. The relationships here are not incompatible with those
+found in the QB1 data.
+
+What do these models say? To see this we can do another vowel space
+plot.
+
+```{r}
+Analysis1_preds <- Analysis1_models %>%
+  mutate(
+    prediction = map(
+      model,
+      ~ get_predictions(model = .x, cond = to_predict, print.summary = FALSE)
+    ),
+    model_smooth_pvs = map(
+      model_summary,
+      ~ .x$s.pv
+    ),
+    genderF_smooth_pv = map_dbl(
+      model_smooth_pvs,
+      ~ .x[[1]]
+    ),
+    genderM_smooth_pv = map_dbl(
+      model_smooth_pvs,
+      ~ .x[[2]]
+    )
+  ) %>%
+  select(
+    Vowel, formant_type, prediction, genderF_smooth_pv, genderM_smooth_pv
+  ) %>%
+  unnest(prediction) %>%
+  # This step is important. It ensures that, when we plot,
+  # arrows go from oldest to youngest speakers.
+  arrange(
+    desc(age_category_numeric)
+  ) %>%
+  mutate(
+    p_value = if_else(Gender == "F", genderF_smooth_pv, genderM_smooth_pv)
+  ) %>%
+  select( # Remove unneeded variables
+    -articulation_rate,
+    -genderF_smooth_pv,
+    -genderM_smooth_pv
+  ) %>%
+  pivot_wider( # Pivot
+    names_from = formant_type,
+    values_from = c(fit, p_value, CI)
+  ) %>%
+  rename(
+    F1_lob2 = fit_F1_lob2,
+    F2_lob2 = fit_F2_lob2
+  ) %>%
+  mutate(
+    # A variable for statistical significance of smooths - either F1 or F2 
+    # significant with bonferonni correction.
+    is_sig = p_value_F1_lob2 < 0.025 | p_value_F2_lob2 < 0.025
+  )
+
+```
+
+The QB1 smooths look like this:
+
+```{r qb1-vsplot, fig.cap="QB1 smooths fit on speakers who are in both corpora."}
+qb1_vsplot <- Analysis1_preds %>%
+  filter(
+    corpus == "qb1"
+  ) %>%
+  qb_plot() +
+  labs(
+    title = "QB1 smooths fit on speakers who are in both corpora."
+  )
+
+qb1_vsplot
+```
+
+```{r qb2-vsplot, fig.cap="QB2 smooths fit on speakers who are in both corpora."}
+qb2_vsplot <- Analysis1_preds %>%
+  filter(
+    corpus == "qb2"
+  ) %>%
+  qb_plot() +
+  labs(
+    title = "QB2 smooths fit on speakers who are in both corpora."
+  )
+  
+qb2_vsplot
+```
+
+Figures \@ref(fig:qb1-vsplot) and \@ref(fig:qb2-vsplot) are not
+inconsistent with those for the entire QB1 corpus. That is, there is
+nothing coming out as significant here which goes in a radically
+different direction from what we have seen above.
+
+## PCA {.tabset}
+
+We perform principal component analyses on QB1 and QB2 separately (see
+the tabs immediately below).
+
+### QB1
+
+We collect the random intercepts for the QB1 models.
+
+```{r}
+QB1_intercepts <- Analysis1_models %>%
+  ungroup() %>% 
+  filter(
+    corpus == "qb1"
+  ) %>% 
+  select(Vowel, formant_type, random_intercepts) %>%
+  unnest(random_intercepts) %>% 
+  arrange(as.character(Vowel))
+
+QB1_intercepts
+```
+
+This data frame gives intercepts for each speaker and model. We need to
+reshape this data so that each column is a vowel-formant pair.
+
+```{r}
+QB1_intercepts <- QB1_intercepts %>%
+  # Create a column to store our eventual column names
+  mutate(
+    # Combine the 'vowel' and 'formant_type' columns as a string.
+    vowel_formant = str_c(Vowel, '_', formant_type),
+    # Remove '_lob2' for cleaner column names
+    vowel_formant = str_replace(vowel_formant, '_lob2', '')
+  ) %>%
+  # Remove old 'vowel' and 'formant_type' columns
+  select(-c(Vowel, formant_type)) %>%
+  # Make data 'wider', by...
+  pivot_wider(
+    names_from = vowel_formant, # naming columns using 'vowel_formant'...
+    values_from = intercept # and values from intercept column
+  )
+```
+
+This step can reveal missing values if a speaker has not been able to
+have an intercept estimated in a particular model.
+
+Are there missing values?
+
+```{r}
+QB1_intercepts[which(is.na(QB1_intercepts), arr.ind=TRUE)[,1],]
+```
+
+One speaker does not have intercepts for [start]{.smallcaps}. We will
+have to leave this speaker out.
+
+```{r}
+QB1_intercepts <- QB1_intercepts %>% 
+  filter(
+    !is.na(START_F1)
+  )
+```
+
+Let's look at a correlation plot:
+
+```{r}
+QB1_intercepts %>% 
+  select(-Speaker) %>% 
+  as.matrix() %>% 
+  cor() %>% 
+  corrplot()
+```
+
+We can also check whether the magnitude of these correlations should be
+surprising to us by a permutation test (as in Brand et al. 2021).
+
+```{r}
+cor_test <- correlation_test(
+  QB1_intercepts %>% select(-Speaker),
+  n = 500,
+  cor.method = "pearson" 
+)
+
+plot_correlation_magnitudes(cor_test)
+```
+
+We now apply PCA using the `pca_test` function from `nzilbb.vowels`.
+This both applies PCA *and* estimates confidence intervals for PC
+loadings.
+
+```{r, eval=FALSE}
+QB1_pca <- pca_test(
+  QB1_intercepts %>% select(-Speaker),
+  n = 1000
+)
+
+write_rds(QB1_pca, here('models', 'QB1_pca.rds'), compress="gz")
+```
+
+```{r, include=FALSE}
+QB1_pca <- read_rds(here('models', 'QB1_pca.rds'))
+```
+
+#### How Many PCs?
+
+```{r}
+QB1_plot_variance_explained <- plot_variance_explained(QB1_pca, pc_max = 5) +
+  labs(title = "Variance Explained by Principal Components for QB1")
+
+QB1_plot_variance_explained
+```
+
+We'll only look at the first two PCs, as they appear outside the NULL
+distribution. However, PC2's confidence intervals intersect with PC3, so
+we will need to filter out bootstrapped analyses to deal with PC
+instability.
+
+Lastly, let's get some numbers as to how much variance each PC actually
+accounts for. The following are the percentages of variance explained by
+each PC.
+
+```{r}
+QB1_pca$variance$variance_explained * 100
+```
+
+#### Loading Plots
+
+First *PC1*:
+
+```{r qb1-pc1, fig.cap = "Index loadings for PC1 (QB1)."}
+QB1_PC1_plot_loadings <- plot_loadings(QB1_pca, pc_no=1) +
+  labs(title = "Index Loadings for PC1 for QB1")
+
+QB1_PC1_plot_loadings
+```
+
+This is roughly the same as the PC1 generated from the full QB1 corpus
+(Figure \@ref(fig:qb1-comp-pc1)).
+
+Let's check to see which exact vowels make up 50% of this PC's
+contribution
+
+```{r, qb1-pc1-contrib, fig.cap="50% loadings for PC1 (QB1)."}
+QB1_pca_simple <- prcomp(
+  QB1_intercepts %>% select(-Speaker),
+  scale=TRUE
+)
+
+pca_contrib_plot(QB1_pca_simple, pc_no = 1, cutoff = 50)
+```
+
+We can see how using the 50% cut-off rule, as done in B21, which
+restrict (and potentially change) the interpretation of the vowel
+cluster here.
+
+Now, *PC2*:
+
+```{r qb1-pc2, fig.cap = "Index loadings for PC2 (QB1).",  cache=FALSE}
+QB1_PC2_plot_loadings <- plot_loadings(QB1_pca, pc_no=2, filter_boots=TRUE) +
+  labs(title = "Index Loadings for PC2 for QB1")
+
+QB1_PC2_plot_loadings
+```
+
+Again, this is roughly the same as the PC2 generated from the full QB1
+corpus (Figure \@ref(fig:qb1-comp-pc2)). [thought]{.smallcaps} comes
+through less clearly and [lot]{.smallcaps} is somewhat involved.
+
+Again, let's check which vowels contribute to 50% of PC2's loading.
+
+```{r, qb1-pc2-contrib, fig.cap="50% loadings for PC2 (QB1).",  cache=FALSE}
+pca_contrib_plot(QB1_pca_simple, pc_no = 2, cutoff = 50)
+```
+
+Before we move on to QB2, we can model the speaker scores onto the
+apparent vowel change over time to see how speakers axis of covariation
+sit among each other.
+
+```{r}
+QB1_plot <- plot_pc_input(QB1_pca_simple, QB1_intercepts %>% select(-Speaker), QB1_pca)
+
+QB1_plot
+```
+
+### QB2
+
+We now apply PCA to the QB2 intercepts.
+
+We collect the random intercepts for the QB2 models.
+
+```{r}
+QB2_intercepts <- Analysis1_models %>%
+  ungroup() %>% 
+  filter(
+    corpus == "qb2"
+  ) %>% 
+  select(Vowel, formant_type, random_intercepts) %>%
+  unnest(random_intercepts) %>% 
+  arrange(as.character(Vowel))
+
+QB2_intercepts
+```
+
+This data frame gives intercepts for each speaker and model. We need to
+reshape this data so that each column is a vowel-formant pair.
+
+```{r}
+QB2_intercepts <- QB2_intercepts %>%
+  # Create a column to store our eventual column names
+  mutate(
+    # Combine the 'vowel' and 'formant_type' columns as a string.
+    vowel_formant = str_c(Vowel, '_', formant_type),
+    # Remove '_lob2' for cleaner column names
+    vowel_formant = str_replace(vowel_formant, '_lob2', '')
+  ) %>%
+  # Remove old 'vowel' and 'formant_type' columns
+  select(-c(Vowel, formant_type)) %>%
+  # Make data 'wider', by...
+  pivot_wider(
+    names_from = vowel_formant, # naming columns using 'vowel_formant'...
+    values_from = intercept # and values from intercept column
+  )
+```
+
+This step can reveal missing values if a speaker has not been able to
+have an intercept estimated in a particular model.
+
+Are there missing values?
+
+```{r}
+QB2_intercepts[which(is.na(QB1_intercepts), arr.ind=TRUE)[,1],]
+```
+
+No.
+
+Let's look at a pairwise correlation plot:
+
+```{r}
+QB2_intercepts %>% 
+  select(-Speaker) %>% 
+  as.matrix() %>% 
+  cor() %>% 
+  corrplot()
+```
+
+Again, let's just double-check this against permutated data of the
+intercepts.
+
+```{r}
+cor_test <- correlation_test(
+  QB2_intercepts %>% select(-Speaker),
+  n= 500,
+  cor.method = "pearson"
+)
+
+plot_correlation_magnitudes(cor_test)
+```
+
+We now apply PCA using the `pca_test` function from `nzilbb.vowels`.
+This both applies PCA *and* estimates confidence intervals for PC
+loadings.
+
+```{r, eval=FALSE}
+QB2_pca <- pca_test(
+  QB2_intercepts %>% select(-Speaker),
+  n = 1000
+)
+
+write_rds(QB2_pca, here('models', 'QB2_pca.rds'), compress="gz")
+```
+
+```{r, include=FALSE}
+QB2_pca <- read_rds(here('models', 'QB2_pca.rds'))
+```
+
+#### How Many PCs?
+
+```{r}
+QB2_plot_variance_explained <- plot_variance_explained(QB2_pca, pc_max = 5) +
+  labs(title = "Variance Explained by Principal Components for QB2")
+
+QB2_plot_variance_explained
+```
+
+We'll look at the first three PCs, as they appear outside the NULL
+distribution. PC2's confidence intervals intersect with PC3, so we will
+need to filter out bootstrapped analyses to deal with PC instability for
+both PC2 and PC3.
+
+Again, we output the exact amounts of variance explained by each PC:
+
+```{r}
+QB2_pca$variance$variance_explained * 100
+```
+
+#### Loading Plots
+
+First *PC1*:
+
+```{r qb2-pc1, fig.cap = "Index loadings for PC1 (QB2)."}
+QB2_PC1_plot_loadings <- plot_loadings(QB2_pca, pc_no=1) +
+  labs(title = "Index Loadings for PC1 for QB2")
+
+QB2_PC1_plot_loadings
+```
+
+This looks very much like PC1 in our previous PCA analyses. Let's check
+which vowels contribute the most to this PC.
+
+```{r, qb2-pc1-contrib, fig.cap="50% loadings for PC1 (QB2)."}
+QB2_pca_simple <- prcomp(
+  QB2_intercepts %>% select(-Speaker),
+  scale = TRUE
+)
+
+pca_contrib_plot(QB2_pca_simple, pc_no = 1, cutoff = 50)
+```
+
+Now, *PC2*:
+
+```{r qb2-pc2-contrib, fig.cap = "Index loadings for PC2 (QB2).",  cache=FALSE}
+QB2_PC2_plot_loadings <- plot_loadings(QB2_pca, pc_no=2, filter_boots=TRUE) +
+  labs(title = "Index Loadings for PC2 for QB2")
+
+QB2_PC2_plot_loadings
+```
+
+```{r, qb2-pc2, fig.cap="50% loadings for PC2 (QB2)."}
+pca_contrib_plot(QB2_pca_simple, pc_no = 2, cutoff = 50)
+```
+
+The corresponding plots for the complete QB1 (Figure
+\@ref(fig:qb1-comp-pc2)) and the subset of speakers in both corpora
+(Figure \@ref(fig:qb1-pc2)) look quite different. However, we *do* have
+a relationship where [strut]{.smallcaps} F2 and [start]{.smallcaps} F2
+are patterned against [thought]{.smallcaps} F1.
+
+And now, *PC3*:
+
+```{r qb2-pc3, fig.cap = "Index loadings for PC3 (QB2).", cache=FALSE}
+plot_loadings(QB2_pca, pc_no=3, filter_boots=TRUE)
+```
+
+Even when filtering PC3 to see if one relationship stands out, we don't
+get much structure. One explanation is that PC3 captures variation in
+[lot]{.smallcaps} F1, which, since it is not particularly correlated
+with any of our other variables, is indifferent to which other patterns
+of variation it appears with in a PC. In particular, we would have no
+reason, given this plot, to claim a genuine relationship of covariation
+between [lot]{.smallcaps} F1, [thought]{.smallcaps} F1, and
+[nurse]{.smallcaps} F2, *even though* they appear with significant
+loadings.
+
+While the loadings are unstable, it is worth noting that this PC *does*
+capture some of the [start]{.smallcaps}, [strut]{.smallcaps},
+[thought]{.smallcaps} relationship (look at the black pluses and
+minuses).
+
+## Stability
+
+The main hypothesis we wish to test is whether speakers here are stable
+with respect to their PC scores between QB1 and QB2. To do this, we
+simply check the correlations of PC1 and PC2 across both QB1 and QB2.
+
+We extract PC scores for each speaker from QB1 and QB2 and look at their
+level of correlation.
+
+```{r}
+QB1_pc_scores <- QB1_pca_simple$x
+QB2_pc_scores <- QB2_pca_simple$x
+
+QB1_pc_scores <- QB1_intercepts %>%
+  bind_cols(
+    QB1_pc_scores[,1:2]
+  )
+
+QB2_pc_scores <- QB2_intercepts %>% 
+  bind_cols(
+    QB2_pc_scores[,1:3]
+  )
+
+
+QBBoth_pc_scores <- QB1_pc_scores %>% 
+  select(Speaker, PC1, PC2) %>% 
+  rename(
+    PC1_qb1 = PC1,
+    PC2_qb1 = PC2
+  ) %>% 
+  left_join(
+    QB2_pc_scores %>% 
+      select(Speaker, PC1, PC2, PC3) %>% 
+      rename(
+        PC1_qb2 = PC1,
+        PC2_qb2 = PC2,
+        PC3_qb2 = PC3
+      )
+  )
+```
+
+```{r}
+cor.test(QBBoth_pc_scores$PC1_qb1, QBBoth_pc_scores$PC1_qb2, method="spearman")
+```
+
+The Spearman correlation between PC1 scores is significant (p-value \<
+2.2e-16) and of high strength (0.7647059).
+
+We can plot this:
+
+```{r}
+PC1_corrplot <- QBBoth_pc_scores %>% 
+  ggplot(
+    aes(
+      x = rank(PC1_qb1),
+      y = rank(PC1_qb2)
+    )
+  ) +
+  geom_point() +
+  geom_smooth(method='lm') +
+  labs(
+    title = "Spearman correlation of PC1 scores (QB1 and QB2)",
+    y = "QB2 PC1 rank", 
+    x = "QB1 PC1 rank"
+  )
+  
+PC1_plot <- QBBoth_pc_scores %>% 
+  ggplot(
+    aes(
+      x = PC1_qb1,
+      y = PC1_qb2
+    )
+  ) +
+  geom_point() +
+  labs(
+    title = "PC1 scores (QB1 and QB2)",
+    y = "QB2 PC1 score", 
+    x = "QB1 PC1 score"
+  )
+
+PC1_plot / PC1_corrplot
+```
+
+While we have some outliers, this is a pretty clear relationship!
+
+We now do the same for PC2, expecting that there will be much more
+noise!
+
+```{r}
+cor.test(QBBoth_pc_scores$PC2_qb1, QBBoth_pc_scores$PC2_qb2, method="spearman")
+```
+
+The relationship comes out as significant, but with a much larger
+p-value (0.01813) and a smaller strength (0.3308597).
+
+Again, we can plot:
+
+```{r}
+PC2_corrplot <- QBBoth_pc_scores %>% 
+  ggplot(
+    aes(
+      x = rank(PC2_qb1),
+      y = rank(PC2_qb2)
+    )
+  ) +
+  geom_point() +
+  geom_smooth(method = "lm") + 
+  labs(
+    title = "Spearman correlation of PC2 scores (QB1 and QB2)",
+    y = "QB2 PC2 rank", 
+    x = "QB1 PC2 rank"
+  )
+  
+PC2_plot <- QBBoth_pc_scores %>% 
+  ggplot(
+    aes(
+      x = PC2_qb1,
+      y = PC2_qb2
+    )
+  ) +
+  geom_point() +
+  labs(
+    title = "PC2 scores (QB1 and QB2)",
+    y = "QB2 PC2 score", 
+    x = "QB1 PC2 score"
+  )
+
+PC2_plot / PC2_corrplot
+```
+
+This is much more noisy. We can zoom in to the smaller values and see if
+any relationship is visually discernible.
+
+```{r}
+PC2_corrplot_detail <- QBBoth_pc_scores %>% 
+  filter(
+    between(PC2_qb1, -2, 2),
+    between(PC2_qb2, -2, 2)
+  ) %>% 
+  ggplot(
+    aes(
+      x = PC2_qb1,
+      y= PC2_qb2
+    )
+  ) +
+  geom_point() +
+  geom_smooth(method="loess") +
+  labs(y = "QB2 PC2 scores", x = "QB1 PC2 scores")
+  
+PC2_corrplot_detail
+```
+
+If we restrict to PC scores between -2 and 2, there is (barely)
+discernible positive relationship.
+
+Before we explore this further, let's take a look to see if age is
+working in correlation with the QB1 PC scores to predict covariation
+stability in QB2. We can do this by running a simple linear model.
+
+First, we need to add the age categories to the `QBBoth_pc_scores` data.
+
+```{r}
+speaker_ages_interim <- QB1 %>%
+  select(Speaker, age_category_numeric, Age) %>%
+  distinct()
+
+QBBoth_pc_scores_age <- left_join(
+  QBBoth_pc_scores,
+  speaker_ages_interim,
+  by = "Speaker"
+)
+
+rm(speaker_ages_interim)
+
+QBBoth_pc_scores_age <- QBBoth_pc_scores_age %>%
+  mutate(
+Age = factor(Age, ordered = FALSE))
+
+```
+
+Linear model for PC1 stability
+
+```{r}
+PC1_age_effectA <- lm(PC1_qb2 ~ PC1_qb1 * age_category_numeric, data = QBBoth_pc_scores_age)
+
+summary(PC1_age_effectA)
+
+PC1_age_effectB <- lm(PC1_qb2 ~ PC1_qb1, data = QBBoth_pc_scores_age)
+
+summary(PC1_age_effectB)
+
+#exclude the only 76-85 speaker
+QBBoth_pc_scores_age <- QBBoth_pc_scores_age %>%
+  filter(Age != "76-85")
+
+PC1_age_effectC <- lm(PC1_qb2 ~ PC1_qb1 * Age, data = QBBoth_pc_scores_age)
+
+summary(PC1_age_effectC)
+
+table(QBBoth_pc_scores_age$Age)
+```
+
+Linear model for PC2 stability
+
+```{r}
+PC2_age_effect <- lm(PC2_qb2 ~ PC2_qb1 * age_category_numeric, data = QBBoth_pc_scores_age)
+
+summary(PC2_age_effect)
+
+PC2_age_effectC <- lm(PC2_qb2 ~ PC2_qb1 * Age, data = QBBoth_pc_scores_age)
+
+summary(PC2_age_effectC)
+```
+
+## Exploring the PC2 correlation
+
+Why is it that the PC2 correlation is so small? We have already seen
+some indication that the QB2 version of PC2 is particularly noisy.
+
+There are a few ways to show that the same pattern picked out in QB1 PC2
+is present in the QB2 data. First, we'll look at variable plots for both
+QB1 and QB2, then we'll look at a PCA with the [lot]{.smallcaps}
+variable removed from QB2. Finally, we'll show that PC2 and PC3 from QB2
+are sufficient to produce very good predictions of QB1 PC2. That is,
+that PC2 and PC3 from QB2 are capturing the relationship captured by PC2
+in QB1.
+
+### Variable Plots
+
+A variable plot shows the PC loadings for two PCs at once.
+
+Here is a variable plot for PC2 and PC3 for QB1:
+
+```{r}
+fviz_pca_var(
+  prcomp(QB1_intercepts %>% select(-Speaker), scale=TRUE), 
+  axes=c(2,3),
+  select.var = list(contrib=10)
+)
+```
+
+Here we see the backness of [start]{.smallcaps} and [strut]{.smallcaps}
+patterning against [thought]{.smallcaps} F1 (among other variables). The
+length of the arrow indicates the size of the loading in the relevant
+dimension, with PC2 along the x-axis and PC3 along the y-axis.
+
+If we look at the same plot for QB2, we see:
+
+```{r}
+fviz_pca_var(
+  prcomp(QB2_intercepts %>% select(-Speaker), scale=TRUE), 
+  axes=c(2,3),
+  select.var = list(contrib=10)
+)
+```
+
+In QB2, the inverse relationship between [strut]{.smallcaps} and
+[start]{.smallcaps} F2 together against [thought]{.smallcaps} F1 is even
+stronger. That is, the arrows for these variables are in directly
+opposite directions. However, these arrows are not directly along either
+PC2 or PC3. That is, the relationship is being captured by *both* PC2
+and PC3. This is an instance of the kind of rotational instability which
+can occur when two PCs explain similar amounts of variance to one
+another. But, for our purposes, the key relationship picked out by PC2
+in QB1 is also picked out by PCA applied to QB2. It is just that it is
+not *only* captured by PC2 in QB2.
+
+### Removing [LOT]{.smallcaps}
+
+We can also remove the [lot]{.smallcaps} variable from QB2. This might
+allow the [strut]{.smallcaps}, [start]{.smallcaps},
+[thought]{.smallcaps} relationship to come through more clearly.
+
+```{r, eval=FALSE}
+QB2_wlot_pca <- pca_test(
+  QB2_intercepts %>% select(-Speaker, -contains('LOT')),
+  n = 1000
+)
+
+write_rds(QB2_wlot_pca, here('models', 'QB2_wlot_pca.rds'), compress="gz")
+```
+
+```{r include=FALSE}
+QB2_wlot_pca <- read_rds(here('models', 'QB2_wlot_pca.rds'))
+```
+
+We look at the same variance and loading plots as above.
+
+```{r}
+plot_variance_explained(QB2_wlot_pca, pc_max = 5)
+```
+
+We'll look at the first three PCs, as they appear outside the NULL
+distribution. PC2's confidence intervals intersect with PC3, so we will
+need to filter out bootstrapped analyses to deal with PC instability for
+both PC2 and PC3.
+
+### Loading Plots
+
+First *PC1*:
+
+```{r qb2-sL-pc1, fig.cap = "Index loadings for PC1 (QB2)."}
+plot_loadings(QB2_wlot_pca, pc_no=1)
+```
+
+PC1 is roughly the same as previous instances.
+
+Now, *PC2*:
+
+```{r qb2-sL-pc2, fig.cap = "Index loadings for PC2 (QB2).",  cache=FALSE}
+plot_loadings(QB2_wlot_pca, pc_no=2, filter_boots=TRUE)
+```
+
+Now PC2 is capturing the [thought]{.smallcaps}, [start]{.smallcaps},
+[strut]{.smallcaps} relationship, as hoped.
+
+And now, *PC3*:
+
+```{r qb2-sL-pc3, fig.cap = "Index loadings for PC2 (QB2).",  cache=FALSE}
+plot_loadings(QB2_wlot_pca, pc_no=3, filter_boots=TRUE)
+```
+
+What does this mean for the correlation between PC2 in QB1 and QB2?
+Let's see:
+
+```{r}
+QB2_wlot_pc_scores <- prcomp(
+  QB2_intercepts %>% 
+    select(-Speaker, -contains('LOT')),
+  scale=TRUE
+  )$x
+
+QB2_wlot_pc_scores <- QB2_intercepts %>% 
+  bind_cols(
+    QB2_wlot_pc_scores[,1:2]
+  )
+
+QBBoth_pc_scores <- QBBoth_pc_scores %>% 
+  left_join(
+    QB2_wlot_pc_scores %>% 
+      select(
+        Speaker, PC1, PC2
+      ) %>% 
+      rename(
+        PC1_qb2_wlot = PC1,
+        PC2_qb2_wlot = PC2
+      )
+  )
+
+cor.test(QBBoth_pc_scores$PC2_qb1, QBBoth_pc_scores$PC2_qb2_wlot)
+```
+
+Now, we have a stronger correlation with smaller p-value. But we are
+still not quite a strong as in the case of PC1.
+
+Let's plot:
+
+```{r}
+QBBoth_pc_scores %>% 
+  ggplot(
+    aes(
+      x = PC2_qb1,
+      y = PC2_qb2_wlot
+    )
+  ) +
+  geom_point() +
+  geom_smooth()
+```
+
+### Linear models
+
+Finally, we show that a linear model of QB1 PC2 by QB2 PC2 and PC3
+performs very well:
+
+```{r}
+linear_fit <- lm(PC2_qb1 ~ PC2_qb2 + PC3_qb2, data=QBBoth_pc_scores)
+summary(linear_fit)
+```
+
+Indeed, it looks like QB2 PC3 is a better predictor of QB1 PC2 and QB2
+PC2 is. Both together provide decent predictive power for prediction QB1
+PC2.
+
+## PCs and Direction of Change {.tabset}
+
+### QB1 {.tabset}
+
+#### PC1
+
+```{r}
+QB1_intercepts_long <- QB1_intercepts %>% 
+  pivot_longer(
+    cols = -Speaker,
+    names_to = "vowel_formant",
+    values_to = "intercept"
+  ) %>% 
+  mutate(
+    Vowel = str_extract(vowel_formant, "^[A-Z]*"),
+    formant = str_extract(vowel_formant, "F[1-2]$")
+  ) %>% 
+  left_join(
+    QB1 %>% 
+      select(Speaker, age_category_numeric, Age, Gender) %>% 
+      distinct()
+  ) %>% 
+  left_join(
+    Analysis1_preds %>%
+      filter(corpus == "qb1") %>% 
+      select(Vowel, age_category_numeric, Gender, F1_lob2, F2_lob2) %>% 
+      pivot_longer(
+        cols = contains('_lob2'),
+        names_to = "formant",
+        values_to = "fit"
+      ) %>% 
+      mutate(
+        formant = str_replace(formant, '_lob2', '')
+      )
+  ) %>% 
+  mutate(
+    fitted_value = fit + intercept
+  ) %>% 
+  left_join(
+    # Overkill: adds all PCs.
+    QB1_pca$loadings %>% 
+      select(
+        PC, variable, loading, sig_loading
+      ) %>% 
+      pivot_wider(
+        names_from = PC,
+        values_from = c('loading', 'sig_loading')
+      ) %>% 
+      rename(vowel_formant = variable)
+  ) %>% 
+  left_join(
+    QB1_pc_scores %>% 
+      select(Speaker, matches('PC[0-9]+'))
+  )
+
+QB1_intercepts_long %>% 
+  filter(
+    Gender == "F"
+  ) %>% 
+  ggplot(
+    aes(
+      x = age_category_numeric,
+      y = fitted_value,
+      colour = PC1
+    )
+  ) +
+  geom_point() +
+  geom_line(aes(y=fit), size=1, colour='red') + 
+  geom_rect(
+      data = QB1_intercepts_long %>% filter(sig_loading_PC1), 
+    fill = NA, colour = "red", xmin = -Inf,xmax = Inf,
+    ymin = -Inf,ymax = Inf
+  ) +
+  scale_colour_scico(palette = "hawaii") +
+  facet_grid(cols = vars(Vowel), rows = vars(formant)) +
+  labs(
+    title = "QB1 PC1",
+    subtitle = "GAMM fit + intercept"
+  )
+```
+
+And in the vowel space:
+
+```{r}
+## Fit linear models
+
+QB1_linear <- QB1_intercepts_long %>%
+  pivot_longer(
+    cols = matches("^PC[0-9]+$"),
+    names_to = 'PC',
+    values_to = 'PC_score'
+  ) %>%
+  group_by(Vowel, formant, PC) %>%
+  nest() %>%
+  mutate(
+    model = map(data, ~lm(fitted_value ~ PC_score, data=.x)),
+    data = map2(data, model, ~ .x %>% mutate(linear_fit = .y[['fitted.values']]))
+  ) %>%
+  select(
+    data
+  ) %>%
+  unnest(data)
+```
+
+The following function is taken from [Wilson Black et al.
+2022](https://nzilbb.github.io/PCA_method_supplementary/PCA_method_supplementary.html#43_Connecting_PCA_with_the_Original_Data).
+
+```{r}
+QB1_linear %>%
+  filter(
+    PC == "PC1"
+  ) %>%
+  select(
+    Speaker, Vowel, formant, fitted_value, linear_fit, loading_PC1, PC_score
+  ) %>% 
+  group_by(Vowel) %>%
+  mutate(
+    max_loading = max(abs(loading_PC1))
+  ) %>%
+  ungroup() %>% 
+  pivot_wider(
+    names_from = "formant",
+    values_from = c("fitted_value", "linear_fit", "loading_PC1"),
+    names_glue = "{formant}_{.value}"
+  ) %>% 
+  ggplot(
+    aes(
+      x = F2_fitted_value,
+      y = F1_fitted_value,
+      colour = PC_score,
+      group = Vowel,
+      label = Vowel,
+      size = max_loading,
+      fill = rescale(max_loading^2, to = c(0, 1))
+    )
+  ) +
+  geom_point(size = 0.7, alpha = 0.5) +
+  geom_line(
+    aes(
+      x = F2_linear_fit,
+      y = F1_linear_fit,
+      size = max_loading
+    ),
+    show.legend = FALSE
+  ) +
+  geom_label_repel(
+    data = . %>%
+      group_by(Vowel) %>%
+      mutate(
+        F1_fitted_value = mean(F1_fitted_value),
+        F2_fitted_value = mean(F2_fitted_value)
+      ) %>%
+      filter(PC_score == min(PC_score)),
+    show.legend = FALSE,
+    alpha = 0.6,
+    min.segment.length = 0,
+    force = 100,
+    segment.alpha = 0.5
+  ) +
+  scale_x_reverse(expand = expansion(add = 0.7)) +
+  scale_y_reverse(position = "right") +
+  scale_colour_gradient2(
+    name = "PC score",
+    low = "black",
+    mid = "white" ,
+    high = "#7CAE00",
+    midpoint=0,
+    breaks = c(-3, 0, 3)
+  ) +
+  scale_fill_gradient(low = "white", high = "yellow", guide = "none") +
+  scale_size_continuous(range = c(1.5, 4), guide = "none") +
+  labs(
+    x = "F2 (Speaker Intercept + GAMM Fit)",
+    y = "F1 (Speaker Intercept + GAMM Fit)",
+    title = "QB1 PC1",
+    subtitle = "GAMM fit + intercept"
+  )
+```
+
+#### PC2
+
+```{r}
+QB1_intercepts_long %>% 
+  filter(
+    Gender == "F"
+  ) %>% 
+  ggplot(
+    aes(
+      x = age_category_numeric,
+      y = fitted_value,
+      colour = PC2
+    )
+  ) +
+  geom_point() +
+  geom_line(aes(y=fit), size=1, colour='red') + 
+  geom_rect(
+      data = QB1_intercepts_long %>% filter(sig_loading_PC2), 
+    fill = NA, colour = "red", xmin = -Inf,xmax = Inf,
+    ymin = -Inf,ymax = Inf
+  ) +
+  scale_colour_scico(palette = "hawaii") +
+  facet_grid(cols = vars(Vowel), rows = vars(formant)) +
+  labs(
+    title = "QB1 PC2",
+    subtitle = "GAMM fit + intercept"
+  )
+```
+
+```{r}
+QB1_linear %>%
+  filter(
+    PC == "PC2"
+  ) %>%
+  select(
+    Speaker, Vowel, formant, fitted_value, linear_fit, loading_PC2, PC_score
+  ) %>% 
+  group_by(Vowel) %>%
+  mutate(
+    max_loading = max(abs(loading_PC2))
+  ) %>%
+  ungroup() %>% 
+  pivot_wider(
+    names_from = "formant",
+    values_from = c("fitted_value", "linear_fit", "loading_PC2"),
+    names_glue = "{formant}_{.value}"
+  ) %>% 
+  ggplot(
+    aes(
+      x = F2_fitted_value,
+      y = F1_fitted_value,
+      colour = PC_score,
+      group = Vowel,
+      label = Vowel,
+      size = max_loading,
+      fill = rescale(max_loading^2, to = c(0, 1))
+    )
+  ) +
+  geom_point(size = 0.7, alpha = 0.5) +
+  geom_line(
+    aes(
+      x = F2_linear_fit,
+      y = F1_linear_fit,
+      size = max_loading
+    ),
+    show.legend = FALSE
+  ) +
+  geom_label_repel(
+    data = . %>%
+      group_by(Vowel) %>%
+      mutate(
+        F1_fitted_value = mean(F1_fitted_value),
+        F2_fitted_value = mean(F2_fitted_value)
+      ) %>%
+      filter(PC_score == min(PC_score)),
+    show.legend = FALSE,
+    alpha = 0.6,
+    min.segment.length = 0,
+    force = 100,
+    segment.alpha = 0.5
+  ) +
+  scale_x_reverse(expand = expansion(add = 0.7)) +
+  scale_y_reverse(position = "right") +
+  scale_colour_gradient2(
+    name = "PC score",
+    low = "black",
+    mid = "white" ,
+    high = "#7CAE00",
+    midpoint=0,
+    breaks = c(-3, 0, 3)
+  ) +
+  scale_fill_gradient(low = "white", high = "yellow", guide = "none") +
+  scale_size_continuous(range = c(1.5, 4), guide = "none") +
+  labs(
+    x = "F2 (Speaker Intercept + GAMM Fit)",
+    y = "F1 (Speaker Intercept + GAMM Fit)",
+    title = "QB1 PC2",
+    subtitle = "GAMM fit + intercept"
+  )
+```
+
+### QB2 {.tabset}
+
+#### PC1
+
+```{r}
+QB2_intercepts_long <- QB2_intercepts %>% 
+  pivot_longer(
+    cols = -Speaker,
+    names_to = "vowel_formant",
+    values_to = "intercept"
+  ) %>% 
+  mutate(
+    Vowel = str_extract(vowel_formant, "^[A-Z]*"),
+    formant = str_extract(vowel_formant, "F[1-2]$")
+  ) %>% 
+  left_join(
+    QB2 %>% 
+      select(Speaker, age_category_numeric, Age, Gender) %>% 
+      distinct()
+  ) %>% 
+  left_join(
+    Analysis1_preds %>%
+      filter(corpus == "qb2") %>% 
+      select(Vowel, age_category_numeric, Gender, F1_lob2, F2_lob2) %>% 
+      pivot_longer(
+        cols = contains('_lob2'),
+        names_to = "formant",
+        values_to = "fit"
+      ) %>% 
+      mutate(
+        formant = str_replace(formant, '_lob2', '')
+      )
+  ) %>% 
+  mutate(
+    fitted_value = fit + intercept
+  ) %>% 
+  left_join(
+    # Overkill: adds all PCs.
+    QB2_pca$loadings %>% 
+      select(
+        PC, variable, loading, sig_loading
+      ) %>% 
+      pivot_wider(
+        names_from = PC,
+        values_from = c('loading', 'sig_loading')
+      ) %>% 
+      rename(vowel_formant = variable)
+  ) %>% 
+  left_join(
+    QB2_pc_scores %>% 
+      select(Speaker, matches('PC[0-9]+'))
+  )
+
+QB2_intercepts_long %>% 
+  filter(
+    Gender == "F"
+  ) %>% 
+  ggplot(
+    aes(
+      x = age_category_numeric,
+      y = fitted_value,
+      colour = PC1
+    )
+  ) +
+  geom_point() +
+  geom_line(aes(y=fit), size=1, colour='red') + 
+  geom_rect(
+      data = QB2_intercepts_long %>% filter(sig_loading_PC1), 
+    fill = NA, colour = "red", xmin = -Inf,xmax = Inf,
+    ymin = -Inf,ymax = Inf
+  ) +
+  scale_colour_scico(palette = "hawaii") +
+  facet_grid(cols = vars(Vowel), rows = vars(formant)) +
+  labs(
+    title = "QB2 PC1",
+    subtitle = "GAMM fit + intercept"
+  )
+```
+
+```{r}
+QB2_linear <- QB2_intercepts_long %>%
+  pivot_longer(
+    cols = matches("^PC[0-9]+$"),
+    names_to = 'PC',
+    values_to = 'PC_score'
+  ) %>%
+  group_by(Vowel, formant, PC) %>%
+  nest() %>%
+  mutate(
+    model = map(data, ~lm(fitted_value ~ PC_score, data=.x)),
+    data = map2(data, model, ~ .x %>% mutate(linear_fit = .y[['fitted.values']]))
+  ) %>%
+  select(
+    data
+  ) %>%
+  unnest(data)
+```
+
+```{r}
+QB2_linear %>%
+  filter(
+    PC == "PC1"
+  ) %>%
+  select(
+    Speaker, Vowel, formant, fitted_value, linear_fit, loading_PC1, PC_score
+  ) %>% 
+  group_by(Vowel) %>%
+  mutate(
+    max_loading = max(abs(loading_PC1))
+  ) %>%
+  ungroup() %>% 
+  pivot_wider(
+    names_from = "formant",
+    values_from = c("fitted_value", "linear_fit", "loading_PC1"),
+    names_glue = "{formant}_{.value}"
+  ) %>% 
+  ggplot(
+    aes(
+      x = F2_fitted_value,
+      y = F1_fitted_value,
+      colour = PC_score,
+      group = Vowel,
+      label = Vowel,
+      size = max_loading,
+      fill = rescale(max_loading^2, to = c(0, 1))
+    )
+  ) +
+  geom_point(size = 0.7, alpha = 0.5) +
+  geom_line(
+    aes(
+      x = F2_linear_fit,
+      y = F1_linear_fit,
+      size = max_loading
+    ),
+    show.legend = FALSE
+  ) +
+  geom_label_repel(
+    data = . %>%
+      group_by(Vowel) %>%
+      mutate(
+        F1_fitted_value = mean(F1_fitted_value),
+        F2_fitted_value = mean(F2_fitted_value)
+      ) %>%
+      filter(PC_score == min(PC_score)),
+    show.legend = FALSE,
+    alpha = 0.6,
+    min.segment.length = 0,
+    force = 100,
+    segment.alpha = 0.5
+  ) +
+  scale_x_reverse(expand = expansion(add = 0.7)) +
+  scale_y_reverse(position = "right") +
+  scale_colour_gradient2(
+    name = "PC score",
+    low = "black",
+    mid = "white" ,
+    high = "#7CAE00",
+    midpoint=0,
+    breaks = c(-3, 0, 3)
+  ) +
+  scale_fill_gradient(low = "white", high = "yellow", guide = "none") +
+  scale_size_continuous(range = c(1.5, 4), guide = "none") +
+  labs(
+    x = "F2 (Speaker Intercept + GAMM Fit)",
+    y = "F1 (Speaker Intercept + GAMM Fit)",
+    title = "QB2 PC1",
+    subtitle = "GAMM fit + intercept"
+  )
+```
+
+#### PC2
+
+```{r}
+QB2_intercepts_long %>% 
+  filter(
+    Gender == "F"
+  ) %>% 
+  ggplot(
+    aes(
+      x = age_category_numeric,
+      y = fitted_value,
+      colour = PC2
+    )
+  ) +
+  geom_point() +
+  geom_line(aes(y=fit), size=1, colour='red') + 
+  geom_rect(
+      data = QB2_intercepts_long %>% filter(sig_loading_PC2), 
+    fill = NA, colour = "red", xmin = -Inf,xmax = Inf,
+    ymin = -Inf,ymax = Inf
+  ) +
+  scale_colour_scico(palette = "hawaii") +
+  facet_grid(cols = vars(Vowel), rows = vars(formant)) +
+  labs(
+    title = "QB2 PC2",
+    subtitle = "GAMM fit + intercept"
+  )
+```
+
+```{r}
+QB2_linear %>%
+  filter(
+    PC == "PC2"
+  ) %>%
+  select(
+    Speaker, Vowel, formant, fitted_value, linear_fit, loading_PC2, PC_score
+  ) %>% 
+  group_by(Vowel) %>%
+  mutate(
+    max_loading = max(abs(loading_PC2))
+  ) %>%
+  ungroup() %>% 
+  pivot_wider(
+    names_from = "formant",
+    values_from = c("fitted_value", "linear_fit", "loading_PC2"),
+    names_glue = "{formant}_{.value}"
+  ) %>% 
+  ggplot(
+    aes(
+      x = F2_fitted_value,
+      y = F1_fitted_value,
+      colour = PC_score,
+      group = Vowel,
+      label = Vowel,
+      size = max_loading,
+      fill = rescale(max_loading^2, to = c(0, 1))
+    )
+  ) +
+  geom_point(size = 0.7, alpha = 0.5) +
+  geom_line(
+    aes(
+      x = F2_linear_fit,
+      y = F1_linear_fit,
+      size = max_loading
+    ),
+    show.legend = FALSE
+  ) +
+  geom_label_repel(
+    data = . %>%
+      group_by(Vowel) %>%
+      mutate(
+        F1_fitted_value = mean(F1_fitted_value),
+        F2_fitted_value = mean(F2_fitted_value)
+      ) %>%
+      filter(PC_score == min(PC_score)),
+    show.legend = FALSE,
+    alpha = 0.6,
+    min.segment.length = 0,
+    force = 100,
+    segment.alpha = 0.5
+  ) +
+  scale_x_reverse(expand = expansion(add = 0.7)) +
+  scale_y_reverse(position = "right") +
+  scale_colour_gradient2(
+    name = "PC score",
+    low = "black",
+    mid = "white" ,
+    high = "#7CAE00",
+    midpoint=0,
+    breaks = c(-3, 0, 3)
+  ) +
+  scale_fill_gradient(low = "white", high = "yellow", guide = "none") +
+  scale_size_continuous(range = c(1.5, 4), guide = "none") +
+  labs(
+    x = "F2 (Speaker Intercept + GAMM Fit)",
+    y = "F1 (Speaker Intercept + GAMM Fit)",
+    title = "QB2 PC2",
+    subtitle = "GAMM fit + intercept"
+  )
+```
+
+#### PC3
+
+```{r}
+QB2_intercepts_long %>% 
+  filter(
+    Gender == "F"
+  ) %>% 
+  ggplot(
+    aes(
+      x = age_category_numeric,
+      y = fitted_value,
+      colour = PC3
+    )
+  ) +
+  geom_point() +
+  geom_line(aes(y=fit), size=1, colour='red') + 
+  geom_rect(
+      data = QB2_intercepts_long %>% filter(sig_loading_PC3), 
+    fill = NA, colour = "red", xmin = -Inf,xmax = Inf,
+    ymin = -Inf,ymax = Inf
+  ) +
+  scale_colour_scico(palette = "hawaii") +
+  facet_grid(cols = vars(Vowel), rows = vars(formant)) +
+  labs(
+    title = "QB2 PC3",
+    subtitle = "GAMM fit + intercept"
+  )
+```
+
+```{r}
+QB2_linear %>%
+  filter(
+    PC == "PC3"
+  ) %>%
+  select(
+    Speaker, Vowel, formant, fitted_value, linear_fit, loading_PC3, PC_score
+  ) %>% 
+  group_by(Vowel) %>%
+  mutate(
+    max_loading = max(abs(loading_PC3))
+  ) %>%
+  ungroup() %>% 
+  pivot_wider(
+    names_from = "formant",
+    values_from = c("fitted_value", "linear_fit", "loading_PC3"),
+    names_glue = "{formant}_{.value}"
+  ) %>% 
+  ggplot(
+    aes(
+      x = F2_fitted_value,
+      y = F1_fitted_value,
+      colour = PC_score,
+      group = Vowel,
+      label = Vowel,
+      size = max_loading,
+      fill = rescale(max_loading^2, to = c(0, 1))
+    )
+  ) +
+  geom_point(size = 0.7, alpha = 0.5) +
+  geom_line(
+    aes(
+      x = F2_linear_fit,
+      y = F1_linear_fit,
+      size = max_loading
+    ),
+    show.legend = FALSE
+  ) +
+  geom_label_repel(
+    data = . %>%
+      group_by(Vowel) %>%
+      mutate(
+        F1_fitted_value = mean(F1_fitted_value),
+        F2_fitted_value = mean(F2_fitted_value)
+      ) %>%
+      filter(PC_score == min(PC_score)),
+    show.legend = FALSE,
+    alpha = 0.6,
+    min.segment.length = 0,
+    force = 100,
+    segment.alpha = 0.5
+  ) +
+  scale_x_reverse(expand = expansion(add = 0.7)) +
+  scale_y_reverse(position = "right") +
+  scale_colour_gradient2(
+    name = "PC score",
+    low = "black",
+    mid = "white" ,
+    high = "#7CAE00",
+    midpoint=0,
+    breaks = c(-3, 0, 3)
+  ) +
+  scale_fill_gradient(low = "white", high = "yellow", guide = "none") +
+  scale_size_continuous(range = c(1.5, 4), guide = "none") +
+  labs(
+    x = "F2 (Speaker Intercept + GAMM Fit)",
+    y = "F1 (Speaker Intercept + GAMM Fit)",
+    title = "QB2 PC3",
+    subtitle = "GAMM fit + intercept"
+  )
+```
+
+# Analysis 2: Uncontrolled Social Variation
+
+In this section we explore whether uncontrolled social variation might
+be influencing the PCA set out in the previous section.
+
+We first explore whether speaker PC scores are predictable from
+ethnicity and/or socioeconomic status (Section \@ref(socialvar)).
+
+We then repeat Analysis 1, but add ethnicity to our models in addition
+to gender (Section \@ref(analysis2)).
+
+## Speaker PC scores and uncontrolled social variation {#socialvar}
+
+For posthoc analysis, we explore how ethnicity and socioeconomic factors
+may influence PCA. We already have ethnicity data from QB but need to
+gather socioeconomic data for our speakers. We calculate this by using
+scores for each speaker's current place of residence and what high
+school they attended to give them a socioeconomic score.
+
+### Socioeconomic data description
+
+The ethnicity categories we are using are the 'NZ Ethnic' categories
+reduced down to 'Māori' and 'Non-Māori'. The distribution, in the
+speakers in both QB1 and QB2 is:
+
+```{r}
+QBBoth %>% 
+  group_by(Ethnicity) %>% 
+  summarise(
+    speakers = n_distinct(Speaker)
+  )
+```
+
+We load the socioecomonic data.
+
+```{r}
+hs_data <- read_rds(here('data', 'hs_data.rds'))
+loc_data <- read_rds(here('data', 'loc_data.rds'))
+```
+
+High school deciles were manually coded following the 2015 decile
+changes available
+[here](https://www.govt.nz/browse/education/school-and-college/school-zones-reviews-and-decile-ratings/)
+(note that from 2023 decile ratings are being phased out and a new
+Equity rating is replacing deciles)
+
+Decile scores for last area speakers say they live in. This is done by
+taking 'The New Zealand Index of Deprivation' is a census based measure
+of socioeconomic deprivation. It is tied to StatsNZ Statistical Area 1
+blocks. These are small areas which aim to contain around 100-200
+people. See <https://github.com/JoshuaWilsonBlack/fire_NZDep> for the
+code which aggregates this information for areas corresponding to those
+given by QuakeBox participants.
+
+We join this information to our data for speakers in both time points
+and plot the distribution.
+
+```{r}
+QBBoth <- QBBoth %>% 
+  left_join(
+    hs_data %>% 
+      mutate(
+        Speaker = as.character(Speaker)
+      )
+  ) %>% 
+  left_join(
+    loc_data %>% 
+      mutate(
+        Speaker = as.character(Speaker)
+      )
+  ) %>% 
+  mutate(
+    Speaker = as.factor(Speaker) # Convert back to factor for GAMM modelling.
+  )
+```
+
+We first plot by school deciles. High values for school decile indicate
+increased socioeconomic status.
+
+```{r hs-dec-gender, fig.cap="Distribution of school deciles by gender."}
+boxplot_school_gender <-
+  QBBoth %>% 
+  filter(
+    corpus == "qb1",
+    school_decile != 0 # remove those with no school decile data (coded 0).
+  ) %>% 
+  ggplot(
+    aes(
+      x = Gender,
+      y = school_decile
+    )
+  ) +
+  geom_boxplot() +
+  labs(
+    title = "School Deciles by Gender",
+    y = "School Decile",
+    x = "Gender"
+  )
+
+boxplot_school_gender
+
+```
+
+And then by location deciles.
+
+```{r hs-dec-ethnic, fig.cap="Distribution of school deciles by ethnicity."}
+boxplot_school_ethnicity <-
+  QBBoth %>% 
+  filter(
+    corpus == "qb1",
+    school_decile != 0 # remove those with no school decile data (coded 0).
+  ) %>% 
+  ggplot(
+    aes(
+      x = Ethnicity,
+      y = school_decile
+    )
+  ) +
+  geom_boxplot() +
+  labs(
+    title = "School Deciles by Ethnicity",
+    y = "School Decile",
+    x = "Ethnicity"
+  )
+
+boxplot_school_ethnicity
+```
+
+We now plot location deciles. High values for location decile indicate
+**reduced** socioeconomic status.
+
+```{r loc-dec-gender, fig.cap="Distribution of location deciles by gender."}
+boxplot_location_gender <-
+  QBBoth %>% 
+  filter(
+    corpus == "qb1",
+    location_decile != 0 # remove those with no school decile data (coded 0).
+  ) %>% 
+  ggplot(
+    aes(
+      x = Gender,
+      y = location_decile
+    )
+  ) +
+  geom_boxplot() +
+  labs(
+    title = "Location Deciles by Gender",
+    y = "Location Decile",
+    x = "Gender"
+  )
+
+boxplot_location_gender
+```
+
+```{r loc-dec-ethnic, fig.cap="Distribution of location deciles by ethnicity."}
+boxplot_location_ethnicity <-
+  QBBoth %>% 
+  filter(
+    corpus == "qb1",
+    location_decile != 0 # remove those with no school decile data (coded 0).
+  ) %>% 
+  ggplot(
+    aes(
+      x = Ethnicity,
+      y = location_decile,
+    )
+  ) +
+  geom_boxplot() +
+  labs(
+    title = "Location Deciles by Ethnicity",
+    y = "Location Decile",
+    x = "Ethnicity"
+  )
+
+boxplot_location_ethnicity
+```
+
+We can also look to see if there is any strong relationship between the
+two socioeconomic indicators:
+
+```{r loc-school, fig.cap = "Location decile by school decile."}
+corrplot_loc_school <- QBBoth %>% 
+  filter(
+    school_decile != 0,
+    location_decile != 0
+  ) %>% 
+  select(
+    Speaker, location_decile, school_decile
+  ) %>% 
+  distinct() %>% 
+  ggplot(
+    aes(
+      x = rank(location_decile),
+      y = rank(school_decile)
+    )
+  ) +
+  geom_jitter() +
+  geom_smooth(method="lm") +
+  labs(
+    title = "Spearman Correlation of Location Decile by School Decile",
+    y = "School Decile (Rank)",
+    x = "Location Decile (Rank)"
+  )
+
+  
+locschool_plot <- QBBoth %>% 
+  filter(
+    school_decile != 0,
+    location_decile != 0
+  ) %>% 
+  select(
+    Speaker, location_decile, school_decile
+  ) %>% 
+  distinct() %>% 
+  ggplot(
+    aes(
+      x = location_decile,
+      y = school_decile
+    )
+  ) +
+  geom_jitter() +
+  labs(
+    title = "Location Decile by School Decile",
+    y = "School Decile",
+    x = "Location Decile"
+  )
+
+locschool_plot / corrplot_loc_school
+```
+
+There is a relationship discernible here, in which school decile
+decreases with location decile from location decile 5 onwards. But there
+is a lot of noise and one is not a particularly reliable predictor of
+the other.
+
+The Spearman correlation value of the two scores is
+`r cor(QBBoth$location_decile, QBBoth$school_decile, method="spearman", use="complete")`,
+which is a moderate relationship. This is a good sign that the two are
+providing independent evidence of socioeconomic status.
+
+### Modelling
+
+We want to model speaker PC scores by these socioeconomic factors. While
+we only have socioeconomic factors coded for the speakers who are in
+both QB1 and QB2, the most stable PC scores we have are from the PCA
+analysis applied to QB1 *as a whole*. We attach the socioeconomic data
+to those PC scores and fit a GAM to test whether they predict PC scores.
+
+We combine the data:
+
+```{r}
+QB1_comp_pc_scores <- QB1_comp_pc_scores %>% 
+  left_join(
+    QBBoth %>% 
+      select(
+        Speaker, location_decile, school_decile, Gender, Ethnicity, age_category_numeric
+      ) %>% 
+      distinct()
+  )
+```
+
+We model for PC1:
+
+```{r}
+socio_model <- gam(
+  PC1 ~ Gender + Ethnicity + 
+    s(age_category_numeric, k=4) + s(school_decile, k = 5) + 
+    s(location_decile, k = 5), 
+  data = QB1_comp_pc_scores %>%
+    filter(
+      !school_decile == 0,
+      !location_decile == 0
+    )
+)
+
+summary(socio_model)
+```
+
+Only the parametric ethnicity term comes out as significant. The
+intercept term represents Māori female speakers, these come out as
+significantly different from female non-Māori speakers. Māori female
+speakers have lower PC1 scores than the rest of the population when
+controlling for other factors. That is, female Māori speakers are less
+conservative with respect to the short front vowel shift and related
+changes (as captured by PC1). Non-Māori females come out as more
+conservative.
+
+Let's quickly check the quality of the model.
+
+```{r}
+gam.check(socio_model)
+```
+
+There's not a huge amount of data at the edges of the distribution (this
+is to be expected, PC scores are scaled around 0). There is nothing too
+worrying about these plots.
+
+We can look at the smooths for age category, school decile, and location
+decile.
+
+```{r}
+plot_smooth(
+  socio_model,
+  view = "school_decile"
+)
+```
+
+```{r}
+plot_smooth(
+  socio_model,
+  view = "location_decile"
+)
+```
+
+```{r}
+plot_smooth(
+  socio_model,
+  view = "age_category_numeric"
+)
+```
+
+These are consistent with no effect (as suggested by the summary).
+Ignoring statistical significance and freely interpreting, the smooth
+for age category goes against the natural assumption that more
+conservative should correspond with older. For a portion of the school
+decile data suggests increased conservatives as location decile
+increases (i.e. as socioeconomic status increases) until about decile 7.
+School decile has an almost flat smooth.
+
+We can do the same for PC2.
+
+```{r}
+socio_model_2 <- gam(
+  PC2 ~ Gender + Ethnicity + 
+    s(age_category_numeric, k=4) + s(school_decile, k = 5) + 
+    s(location_decile, k = 5), 
+  data = QB1_comp_pc_scores %>%
+    filter(
+      !school_decile == 0,
+      !location_decile == 0
+    )
+)
+
+summary(socio_model_2)
+```
+
+There is no obvious effect here for ethnicity, age, or socioeconomic
+status.
+
+## PCA with Ethnicity {#analysis2}
+
+There is some suggestion that ethnicity is affecting PC scores. So we
+repeat the same analysis as above, but with ethnicity in our models as
+well.
+
+Is there some effect driven by ethnicity which is causing this
+stability? We run the models again controlling for ethnicity.
+
+### GAMM Modelling {.tabset}
+
+#### Model Fit
+
+```{r analysis-2-fit, eval=FALSE}
+Analysis2_models <- QBBoth %>%
+  filter(
+    age_category_numeric != 8
+  ) %>%
+  select(
+    -F1_50, -F2_50
+  ) %>% 
+  pivot_longer(
+    cols = F1_lob2:F2_lob2,
+    names_to = "formant_type",
+    values_to = "formant_value"
+  ) %>%
+  group_by(corpus, Vowel, formant_type) %>%
+  nest() %>%
+  mutate(
+    model = map(
+      data, 
+        ~ bam(
+          formant_value ~ Gender + Ethnicity + s(age_category_numeric, k = 4, by = Gender) +
+            s(age_category_numeric, k = 4, by = Ethnicity) + # main effects
+            s(articulation_rate, k = 3) + # control vars
+            s(Speaker, bs='re') + s(Word, bs='re'), # random effects
+          discrete = TRUE,
+          nthreads = 16, # This value is too high for most situations.
+          family = mgcv::scat(link ='identity'),
+          data = .x
+      )
+    ),
+    model_summary = map(model, summary),
+    random_intercepts = map(
+      model,
+      ~ get_random(.x)$`s(Speaker)` %>% 
+        as_tibble(rownames = "Speaker") %>%
+        rename(intercept = value)
+    )
+  )
+
+# Save models
+write_rds(
+  Analysis2_models, 
+  here('models', 'Analysis2_models.rds'), 
+  compress="gz"
+)
+```
+
+```{r, include=FALSE}
+Analysis2_models <- read_rds(here('models', 'Analysis2_models.rds'))
+```
+
+#### Model Checks
+
+```{r, dpi=100}
+walk2(
+  str_c(
+    Analysis2_models$corpus, '_',
+    Analysis2_models$Vowel, '_', 
+    Analysis2_models$formant_type
+  ),
+  Analysis2_models$model,
+  ~ {
+    qq.gam(.y, sub=.x)
+  }
+)
+```
+
+#### Vowel space plots
+
+What do these models say? To see this we can do another vowel space
+plot.
+
+```{r}
+Analysis2_preds <- Analysis2_models %>%
+  mutate(
+    prediction = map(
+      model,
+      ~ get_predictions(model = .x, cond = to_predict, print.summary = FALSE)
+    ),
+    model_smooth_pvs = map(
+      model_summary,
+      ~ .x$s.pv
+    ),
+    genderF_smooth_pv = map_dbl(
+      model_smooth_pvs,
+      ~ .x[[1]]
+    ),
+    genderM_smooth_pv = map_dbl(
+      model_smooth_pvs,
+      ~ .x[[2]]
+    )
+  ) %>%
+  select(
+    Vowel, formant_type, prediction, genderF_smooth_pv, genderM_smooth_pv
+  ) %>%
+  unnest(prediction) %>%
+  # This step is important. It ensures that, when we plot,
+  # arrows go from oldest to youngest speakers.
+  arrange(
+    desc(age_category_numeric)
+  ) %>%
+  mutate(
+    p_value = if_else(Gender == "F", genderF_smooth_pv, genderM_smooth_pv)
+  ) %>%
+  select( # Remove unneeded variables
+    -articulation_rate,
+    -genderF_smooth_pv,
+    -genderM_smooth_pv
+  ) %>%
+  pivot_wider( # Pivot
+    names_from = formant_type,
+    values_from = c(fit, p_value, CI)
+  ) %>%
+  rename(
+    F1_lob2 = fit_F1_lob2,
+    F2_lob2 = fit_F2_lob2
+  ) %>%
+  mutate(
+    # A variable for statistical significance of smooths - either F1 or F2 
+    # significant with bonferonni correction.
+    is_sig = p_value_F1_lob2 < 0.025 | p_value_F2_lob2 < 0.025
+  )
+
+```
+
+The QB1 smooths look like this:
+
+```{r qb1-eth-vsplot, fig.cap="QB1 smooths fit on speaker who are in both corpora."}
+qb1_vsplot <- Analysis2_preds %>%
+  filter(
+    corpus == "qb1"
+  ) %>%
+  qb_plot() +
+  labs(
+    title = "QB1 smooths fit on speakers who are in both corpora."
+  )
+
+qb1_vsplot
+```
+
+```{r qb2-eth-vsplot, fig.cap="QB2 smooths fit on speaker who are in both corpora."}
+qb2_vsplot <- Analysis2_preds %>%
+  filter(
+    corpus == "qb2"
+  ) %>%
+  qb_plot() +
+  labs(
+    title = "QB2 smooths fit on speakers who are in both corpora."
+  )
+  
+qb2_vsplot
+```
+
+### PCA {.tabset}
+
+#### QB1
+
+We collect the random intercepts for the QB1 models.
+
+```{r}
+QB1_intercepts <- Analysis2_models %>%
+  ungroup() %>% 
+  filter(
+    corpus == "qb1"
+  ) %>% 
+  select(Vowel, formant_type, random_intercepts) %>%
+  unnest(random_intercepts) %>% 
+  arrange(as.character(Vowel))
+
+QB1_intercepts
+```
+
+This data frame gives intercepts for each speaker and model. We need to
+reshape this data so that each column is a vowel-formant pair.
+
+```{r}
+QB1_intercepts <- QB1_intercepts %>%
+  # Create a column to store our eventual column names
+  mutate(
+    # Combine the 'vowel' and 'formant_type' columns as a string.
+    vowel_formant = str_c(Vowel, '_', formant_type),
+    # Remove '_lob2' for cleaner column names
+    vowel_formant = str_replace(vowel_formant, '_lob2', '')
+  ) %>%
+  # Remove old 'vowel' and 'formant_type' columns
+  select(-c(Vowel, formant_type)) %>%
+  # Make data 'wider', by...
+  pivot_wider(
+    names_from = vowel_formant, # naming columns using 'vowel_formant'...
+    values_from = intercept # and values from intercept column
+  ) %>% 
+  filter(
+    !is.na(START_F1)
+  )
+```
+
+Apply PCA:
+
+```{r, eval=FALSE}
+QB1_pca <- pca_test(
+  QB1_intercepts %>% select(-Speaker),
+  n = 1000
+)
+
+write_rds(QB1_pca, here('models', 'QB1_pca_analysis2.rds'), compress = "gz")
+```
+
+```{r, include=FALSE}
+QB1_pca <- read_rds(here('models', 'QB1_pca_analysis2.rds'))
+```
+
+##### How Many PCs?
+
+```{r}
+plot_variance_explained(QB1_pca, pc_max = 5)
+```
+
+We'll only look at the first two PCs, as they appear outside the NULL
+distribution. However, PC2's confidence intervals intersect with PC3, so
+we will need to filter out bootstrapped analyses to deal with PC
+instability.
+
+##### Loading Plots
+
+First *PC1*:
+
+```{r qb1-eth-pc1, fig.cap = "Index loadings for PC1 (QB1)."}
+plot_loadings(QB1_pca, pc_no=1)
+```
+
+This is roughly the same as the PC1 generated from the full QB1 corpus
+(Figure \@ref(fig:qb1-comp-pc1)) and from the QB1 data from speakers who
+are in both corpora (Figure \@ref(fig:qb1-pc1)).
+
+Now, *PC2*:
+
+```{r qb1-eth-pc2, fig.cap = "Index loadings for PC2 (QB1).",  cache=FALSE}
+plot_loadings(QB1_pca, pc_no=2, filter_boots=TRUE)
+```
+
+Interestingly, we seem to be losing [thought]{.smallcaps} from the
+[thought]{.smallcaps}, [start]{.smallcaps} [strut]{.smallcaps}
+relationship.
+
+Let's look at a variable plot for PC2 and PC3.
+
+```{r}
+fviz_pca_var(
+  prcomp(
+    QB1_intercepts %>% select(-Speaker), scale=TRUE
+  ),
+  axes = c(2,3),
+  select.var = list(contrib=10)
+)
+```
+
+In this subset of the data, [thought]{.smallcaps} is more strongly
+associated with PC3 than PC2.
+
+#### QB2
+
+We collect the random intercepts for the QB2 models.
+
+```{r}
+QB2_intercepts <- Analysis2_models %>%
+  ungroup() %>% 
+  filter(
+    corpus == "qb2"
+  ) %>% 
+  select(Vowel, formant_type, random_intercepts) %>%
+  unnest(random_intercepts) %>% 
+  arrange(as.character(Vowel))
+
+QB1_intercepts
+```
+
+This data frame gives intercepts for each speaker and model. We need to
+reshape this data so that each column is a vowel-formant pair.
+
+```{r}
+QB2_intercepts <- QB2_intercepts %>%
+  # Create a column to store our eventual column names
+  mutate(
+    # Combine the 'vowel' and 'formant_type' columns as a string.
+    vowel_formant = str_c(Vowel, '_', formant_type),
+    # Remove '_lob2' for cleaner column names
+    vowel_formant = str_replace(vowel_formant, '_lob2', '')
+  ) %>%
+  # Remove old 'vowel' and 'formant_type' columns
+  select(-c(Vowel, formant_type)) %>%
+  # Make data 'wider', by...
+  pivot_wider(
+    names_from = vowel_formant, # naming columns using 'vowel_formant'...
+    values_from = intercept # and values from intercept column
+  )
+```
+
+Apply PCA:
+
+```{r, eval=FALSE}
+QB2_pca <- pca_test(
+  QB2_intercepts %>% select(-Speaker),
+  n = 1000
+)
+
+write_rds(QB2_pca, here('models', 'QB2_pca_analysis2.rds'), compress="gz")
+```
+
+```{r, include=FALSE}
+QB2_pca <- read_rds(here('models', 'QB2_pca_analysis2.rds'))
+```
+
+##### How Many PCs?
+
+```{r}
+plot_variance_explained(QB2_pca, pc_max = 5)
+```
+
+We'll only look at the first three PCs, as they appear outside the NULL
+distribution. PC2's confidence intervals intersect with PC3, so we will
+need to filter out bootstrapped analyses to deal with PC instability.
+
+##### Loading Plots
+
+First *PC1*:
+
+```{r qb2-eth-pc1, fig.cap = "Index loadings for PC1 (QB1)."}
+plot_loadings(QB2_pca, pc_no=1)
+```
+
+We again have the short front vowel shift and associated changes.
+
+Now, *PC2*:
+
+```{r qb2-eth-pc2, fig.cap = "Index loadings for PC2 (QB1).", cache=FALSE}
+plot_loadings(QB2_pca, pc_no=2, filter_boots=TRUE)
+```
+
+And *PC3*:
+
+```{r qb2-eth-pc3, fig.cap = "Index loadings for PC2 (QB1).", cache=FALSE}
+plot_loadings(QB2_pca, pc_no=3, filter_boots=TRUE)
+```
+
+We have the same instability we talked about with our previous QB2
+analysis.
+
+Let's look at a variable plot again:
+
+```{r}
+fviz_pca_var(
+  prcomp(
+    QB2_intercepts %>% select(-Speaker), scale=TRUE
+  ),
+  axes = c(2,3),
+  select.var = list(contrib=10)
+)
+```
+
+Again, we see the [thought]{.smallcaps}, [start]{.smallcaps},
+[strut]{.smallcaps} relationship at 45 degrees with respect to PC2 and
+PC3. This is the same as we found when we did not control for ethnicity
+in our models.
+
+### PC score stability
+
+We again test for stability in our PC scores.
+
+```{r}
+QB1_pc_scores <- prcomp(QB1_intercepts %>% select(-Speaker), scale=TRUE)$x
+QB2_pc_scores <- prcomp(
+  QB2_intercepts %>% 
+    select(-Speaker),
+  scale=TRUE
+  )$x
+
+QB1_pc_scores <- QB1_intercepts %>%
+  bind_cols(
+    QB1_pc_scores[,1:2]
+  )
+
+QB2_pc_scores <- QB2_intercepts %>% 
+  bind_cols(
+    QB2_pc_scores[,1:3]
+  )
+
+
+QBBoth_pc_scores <- QB1_pc_scores %>% 
+  select(Speaker, PC1, PC2) %>% 
+  rename(
+    PC1_qb1 = PC1,
+    PC2_qb1 = PC2
+  ) %>% 
+  left_join(
+    QB2_pc_scores %>% 
+      select(Speaker, PC1, PC2, PC3) %>% 
+      rename(
+        PC1_qb2 = PC1,
+        PC2_qb2 = PC2,
+        PC3_qb2 = PC3
+      )
+  )
+```
+
+```{r}
+cor.test(QBBoth_pc_scores$PC1_qb1, QBBoth_pc_scores$PC1_qb2, method="spearman")
+```
+
+Again, we have a significant positive correlation between QB1 and QB2
+versions of PC1.
+
+What about PC2?
+
+```{r}
+cor.test(QBBoth_pc_scores$PC2_qb1, QBBoth_pc_scores$PC2_qb2, method="spearman")
+```
+
+PC2 no longer appears as significant.
+
+We have seen that the QB1 PC2 relationship is captured by both PC2 and
+PC3 in the QB2 data, so we look at PC3 as well:
+
+```{r}
+cor.test(QBBoth_pc_scores$PC2_qb1, QBBoth_pc_scores$PC3_qb2, method="spearman")
+```
+
+QB2 PC3 *is* significantly correlation with QB1 PC2.
+
+PCA is capturing similar structures across QB1 and QB2, even when we
+control for the effect of ethnicity in our models.
+
+At this point, we are down to only 51 speakers, so it is unsurprising
+that our signal is becoming weaker.
+
+# Additional Checks
+
+## Are These Phenomena Specific to NZE?
+
+One sanity check for our analysis would be to run the same PCA process
+on an entirely different corpus consisting of speakers from another
+dialect. Doing this not only ensures that the success of this method
+isn't merely NZ corpora specific, but it will also show whether the
+clusters that PCA return are not an artefact of some universal vowel
+space mechanics (i.e., mouth dimensions).
+
+So let's check this by using the Origins of Liverpool English (OLivE)
+corpus (Watson & Clark, 2017). For more information about this corpus,
+refer to Watson & Clark's 2017 paper here:
+
+Watson, K., & Clark, L. (2017). The origins of Liverpool English.
+Listening to the past: Audio records of accents of English, 114-141.
+
+Like the QB analysis, the OLivE analysis underwent the same filtering
+and modelling process (controlling for age, gender, age by gender, and
+speech rate, with a random intercept for speaker and word). Let's load
+in the speaker intercepts here and run PCA on it.
+
+```{r}
+#load in OLivE intercepts
+olive_ints <- read.csv(here("data", "OLIVE_ints.csv")) %>%
+  select(-X)
+```
+
+Let's look at a pairwise correlation plot:
+
+```{r}
+olive_ints %>% 
+  select(-Speaker) %>% 
+  as.matrix() %>% 
+  cor() %>% 
+  corrplot()
+```
+
+### PCA
+
+```{r, eval=FALSE}
+olive_pca <- pca_test(
+  olive_ints %>% select(-Speaker),
+  n = 1000
+)
+
+write_rds(olive_pca, here('models', 'olive_pca.rds'), compress="gz")
+```
+
+```{r, include=FALSE}
+olive_pca <- read_rds(here('models', 'olive_pca.rds'))
+```
+
+#### Loading Plots
+
+Let's take a look at the variance explained by the PCs.
+
+```{r}
+plot_variance_explained(olive_pca, pc_max = 5)
+```
+
+Similar to the QB data, PC1 and PC2 are the only stable PCs in the OLivE
+dataset.
+
+First *PC1*:
+
+```{r olive-comp-pc1, fig.cap = "Index loadings for PC1 (OLivE)."}
+plot_loadings(olive_pca, pc_no=1)
+```
+
+Although the first few loadings here look very similar to the PC2
+loadings in QB (and the PC1 loadings in Brand et al., (2021)), notice
+that the signs for the vowels are different. In the QB data, [thought
+F1]{.smallcaps} correlated in the opposite direction to [lot
+F2]{.smallcaps}, [strut F2]{.smallcaps}, [thought F2]{.smallcaps}, and
+[start F2]{.smallcaps}. Whereas in the OLivE data, [thought
+F1]{.smallcaps} now correlates in the same direction as those vowels,
+except for [strut F2]{.smallcaps}, which now correlates in the opposite
+direction. Therefore, the direction of sound change and how these vowels
+covary is completely unique to this data set of LivE speakers.
+Additionally, PC1 has significantly loaded [nurse F1]{.smallcaps} and
+[fleece F1]{.smallcaps} - vowels which were not loaded in PC2 for the QB
+data. Therefore, there appears to be covariation between the back vowels
+and high mid-front vowels in this data set of Liverpool English.
+
+Now, *PC2*:
+
+```{r olive-comp-pc2, fig.cap = "Index loadings for PC2 (OLivE).", cache=FALSE}
+plot_loadings(olive_pca, pc_no=2, filter_boots=TRUE)
+```
+
+PC2 is showing a cluster unlike anything that has shown up in any
+previous PCA on NZE speakers.
+
+We can also check *PC3*:
+
+```{r olive-comp-pc3, fig.cap = "Index loadings for PC3 (OLivE).", cache=FALSE}
+plot_loadings(olive_pca, pc_no=3, filter_boots=TRUE)
+```
+
+And similar to the QB data, PC3 is only reliably capturing a single
+variable, hence, we shall ignore them.
+
+Let's also check the variable plot for PC1 and PC2.
+
+```{r}
+fviz_pca_var(
+  prcomp(
+    olive_ints %>% select(-Speaker), scale=TRUE
+  ),
+  axes = c(1,2),
+  select.var = list(contrib=10)
+)
+```
+
+In sum, the stability exploration in this paper, and the relative
+success in finding said stability is not the result of some NZE-specific
+dialect nor is the PCA finding stability in more universal vowel
+features.
+
+## Are These Phenomena Affected by Repetition of Content?
+
+One potential driver for our significant PC correlations across QB1 and
+QB2 may be due to similarity in the discourse material. Given that
+speakers were specifically ask 'remind me of your earthquake story' in
+the follow-up interviews, it may be the case that the correlation
+between the PCs are reflective of repeated narratives/words, rather than
+real monophthongal covariation.
+
+To test for this, we investigate: a) seeing if all (or most) speakers
+have comparable earthquake stories in their QB1 to QB2 b) doing PCA on
+the 'old' (i.e., repeated) vs 'new' (i.e., spontaneous) data sets.
+
+The QuakeBox corpus has tagging to overall topical categories. The QB2
+taggings were completed by the first author (GH).
+
+### Preprocessing and Tidying
+
+First, let's load in the rds files which contains the same data we have
+been dealing with previous, but now they have a 'type' column
+
+```{r}
+QB1type <- read_rds(here ("data", "QB1_topics.rds"))
+QB2type <- read_rds(here ("data", "QB2_topics.rds"))
+
+table(QB1type$type) #this will all count as 'old' data
+table(QB2type$type) #new topic types in here will count as 'new' data
+
+#remove NA taggings
+QB1type <- QB1type %>%
+  filter(type != "NA")
+
+QB2type <- QB2type %>%
+  filter(type != "NA")
+
+#make all the taggings in QB1 = 'old'
+QB1type <- QB1type %>%
+  mutate(
+    type=str_trim(type)
+    ) %>%
+  filter(
+    type == "{February earthquake experience}" | 
+      type == "{June earthquake experience}" | 
+      type == "{other earthquake experience}" | 
+      type == "{Boxing Day earthquake experience}" | 
+      type == "{December 23rd earthquakes experience}" | 
+      type == "{September earthquake experience}" | 
+      type == "{personal background to the earthquakes}"
+  ) %>%
+  add_column(retelling="old") 
+
+#make all the repeated taggings that are in QB1 = 'old' in QB2 and all other taggings are 'new'
+QB2type <- QB2type %>%
+  mutate(
+    type=str_trim(type)
+    ) %>%
+  mutate(
+    retelling = if_else(
+      type=="{February earthquake experience}" | 
+        type=="{June earthquake experience}" | 
+        type== "{other earthquake experience}" | 
+        type== "{Boxing Day earthquake experience}" | 
+        type== "{September earthquake experience}" | 
+        type == "{personal background to the earthquakes}", 
+      "old", 
+      "new"
+    )
+  )
+```
+
+```{r}
+#let's make a new column that combines the speaker name and topic tag - this will come in handy in a bit when we want to divide the topic tags into 'old' and 'new'
+QB1type$Speaker.Type <- paste(QB1type$Speaker, QB1type$type)
+
+#repeat this process with QB2type
+QB2type$Speaker.Type <- paste(QB2type$Speaker, QB2type$type)
+```
+
+We can now divide the QB2 'retelling' column into things that have been
+repeated (`QB2oldtype`) and new narratives (`QB2newtype`).
+
+```{r}
+#now we can add in which tokens are part of 'new' narratives if they are not there in the QB1 data
+QB2type[!QB2type$Speaker.Type %in% QB1type$Speaker.Type,]$retelling = "new"
+
+#now we can divide the QB2 data into two separate dataframes - one containing only the old narratives and one containing only the new narratives
+QB2oldtype <- QB2type %>%
+  filter(
+    retelling == "old"
+    )
+
+QB2newtype <- QB2type %>%
+  filter(
+    retelling == "new"
+    )
+
+```
+
+Next, we should isolate the QB1 intercepts/PC loading scores data frames
+(i.e., all the QB1 'old' data) and the `QB2newtype` data to contain the
+same speakers that are in the `QB2oldtype`.
+
+```{r}
+QB1_pc_scores_old <- QB1_pc_scores %>%
+  filter(
+    Speaker %in% QB2oldtype$Speaker
+    )
+
+QB2newtype <- QB2newtype %>%
+  filter(
+    Speaker %in% QB2oldtype$Speaker
+    )
+
+#there was also one speaker who was manually removed before Analysis 1 due 
+# to odd STRUT tokens, let's remove them here too
+QB2newtype <- QB2newtype %>%
+  filter(
+    Speaker != "QB_NZ_F_645"
+    )
+
+QB2oldtype <- QB2oldtype %>%
+  filter(
+    Speaker != "QB_NZ_F_645"
+    )
+
+#and let's double check there is the same amount of speakers 
+n_distinct(QB1_pc_scores_old$Speaker)
+n_distinct(QB2newtype$Speaker)
+n_distinct(QB2oldtype$Speaker)
+
+```
+
+Finally, let's remove all [foot]{.smallcaps} tokens as they are not a
+part of our analysis.
+
+```{r}
+QB2newtype <- QB2newtype %>%
+  filter(
+    Vowel != "FOOT"
+    )
+
+QB2oldtype <- QB2oldtype %>%
+  filter(
+    Vowel != "FOOT"
+    )
+
+```
+
+Now we can run the GAMMs on the `QB2oldtype` and `QB2newtype` data, get
+the intercepts to run PCA, and plot in vowel space to compare to QB1type
+(which is identical to the initial QB1tidy data sets, but now with an
+inclusion of the retelling column containing 'old').
+
+### GAMM Modelling {.tabset}
+
+Like previous models, we need to make sure the relevant columns in the
+data frames are the right structure.
+
+#### QB2 new narratives
+
+Starting with the `QB2newtype` data.
+
+```{r, pre-model-qb2new}
+# Check that age values in the correct order.
+levels(QB2newtype$Age)
+# output: "18-25" "26-35" "36-45" "46-55" "56-65" "66-75" "76-85" 
+# Correct!
+
+# Convert to integer and do to factor conversions for speaker and word.
+QB2newtype <- QB2newtype %>%
+  mutate(
+    age_category_numeric = as.integer(Age),
+    Speaker = as.factor(Speaker),
+    Gender = as.factor(Gender),
+    Word = as.factor(Word)
+  )
+```
+
+Now we can run the first model. We use the original (i.e., not
+ethnicity) models here, since we know adding in ethnicity does not
+significantly affect the PCA.
+
+```{r model-fit-qb2new, eval=FALSE}
+QB2newtype_models <- QB2newtype %>%
+  select(
+    -F1_50, -F2_50
+  ) %>%
+  pivot_longer(
+    cols = F1_lob2:F2_lob2,
+    names_to = "formant_type",
+    values_to = "formant_value"
+  ) %>%
+  group_by(Vowel, formant_type) %>%
+  nest() %>%
+  mutate(
+    model = map(
+      data,
+      ~ bam(
+          formant_value ~ Gender + s(age_category_numeric, k = 4, by = Gender) + # main effects
+            s(articulation_rate, k = 3) + # control vars
+            s(Speaker, bs='re') + s(Word, bs='re'), # random effects
+          discrete = TRUE,
+          nthreads = 16, # This value is too high for most situations.
+          family = mgcv::scat(link ='identity'),
+          data = .x
+      )
+    ) ,
+    model_summary = map(model, summary),
+    random_intercepts = map(
+      model,
+      ~ get_random(.x)$`s(Speaker)` %>% 
+        as_tibble(rownames = "Speaker") %>%
+        rename(intercept = value)
+    )
+  )
+
+write_rds(
+  QB2newtype_models, 
+  here('models', 'QB2newtype_models.rds'),
+  compress = "gz"
+)
+```
+
+```{r}
+QB2newtype_models <- read_rds(here('models', 'QB2newtype_models.rds'))
+```
+
+And collect the random intercepts
+
+```{r}
+QB2newtype_intercepts <- QB2newtype_models %>%
+  ungroup() %>%
+  select(Vowel, formant_type, random_intercepts) %>%
+  unnest(random_intercepts) %>% 
+  arrange(as.character(Vowel))
+
+QB2newtype_intercepts #yippie
+```
+
+```{r}
+QB2newtype_intercepts <- QB2newtype_intercepts %>%
+  # Create a column to store our eventual column names
+  mutate(
+    # Combine the 'vowel' and 'formant_type' columns as a string.
+    vowel_formant = str_c(Vowel, '_', formant_type),
+    # Remove '_lob2' for cleaner column names
+    vowel_formant = str_replace(vowel_formant, '_lob2', '')
+  ) %>%
+  # Remove old 'vowel' and 'formant_type' columns
+  select(-c(Vowel, formant_type)) %>%
+  # Make data 'wider', by...
+  pivot_wider(
+    names_from = vowel_formant, # naming columns using 'vowel_formant'...
+    values_from = intercept # and values from intercept column
+  ) 
+```
+
+#### QB2 repeated narratives
+
+And now we repeat this modelling with the `QB2oldtype` data.
+
+```{r, pre-model-qb2old}
+# Check that age values in the correct order.
+levels(QB2oldtype$Age)
+# output: "18-25" "26-35" "36-45" "46-55" "56-65" "66-75" "76-85" 
+# Correct!
+
+# Convert to integer and do to factor conversions for speaker and word.
+QB2oldtype <- QB2oldtype %>%
+  mutate(
+    age_category_numeric = as.integer(Age),
+    Speaker = as.factor(Speaker),
+    Gender = as.factor(Gender),
+    Word = as.factor(Word)
+  )
+```
+
+Run the models.
+
+```{r model-fit-qb2old, eval=FALSE}
+QB2oldtype_models <- QB2oldtype%>%
+  select(
+    -F1_50, -F2_50
+  ) %>%
+  pivot_longer(
+    cols = F1_lob2:F2_lob2,
+    names_to = "formant_type",
+    values_to = "formant_value"
+  ) %>%
+  group_by(Vowel, formant_type) %>%
+  nest() %>%
+  mutate(
+    model = map(
+      data,
+      ~ bam(
+          formant_value ~ Gender + s(age_category_numeric, k = 4, by = Gender) + # main effects
+            s(articulation_rate, k = 3) + # control vars
+            s(Speaker, bs='re') + s(Word, bs='re'), # random effects
+          discrete = TRUE,
+          nthreads = 16, # This value is too high for most situations.
+          family = mgcv::scat(link ='identity'),
+          data = .x
+      )
+    ) ,
+    model_summary = map(model, summary),
+    random_intercepts = map(
+      model,
+      ~ get_random(.x)$`s(Speaker)` %>% 
+        as_tibble(rownames = "Speaker") %>%
+        rename(intercept = value)
+    )
+  )
+
+
+write_rds(
+  QB2oldtype_models, 
+  here('models', 'QB2oldtype_models.rds'),
+  compress = "gz"
+)
+```
+
+```{r}
+QB2oldtype_models <- read_rds(here('models', 'QB2oldtype_models.rds'))
+```
+
+Collect the random intercepts:
+
+```{r}
+QB2oldtype_intercepts <- QB2oldtype_models %>%
+  ungroup() %>%
+  select(Vowel, formant_type, random_intercepts) %>%
+  unnest(random_intercepts) %>% 
+  arrange(as.character(Vowel))
+
+```
+
+```{r}
+QB2oldtype_intercepts <- QB2oldtype_intercepts %>%
+  # Create a column to store our eventual column names
+  mutate(
+    # Combine the 'vowel' and 'formant_type' columns as a string.
+    vowel_formant = str_c(Vowel, '_', formant_type),
+    # Remove '_lob2' for cleaner column names
+    vowel_formant = str_replace(vowel_formant, '_lob2', '')
+  ) %>%
+  # Remove old 'vowel' and 'formant_type' columns
+  select(-c(Vowel, formant_type)) %>%
+  # Make data 'wider', by...
+  pivot_wider(
+    names_from = vowel_formant, # naming columns using 'vowel_formant'...
+    values_from = intercept # and values from intercept column
+  ) 
+
+```
+
+### Final tidy before PCA
+
+Let's make sure the intercepts are okay for this data frame, given there
+is quite a few less vowel tokens, so there may be some missing
+intercepts.
+
+```{r}
+QB2oldtype_intercepts #oh no, looks like there's a couple funky speakers! We need to remove them from all the dataframes we are dealing with.
+
+QB2oldtype_intercepts <- QB2oldtype_intercepts %>%
+  filter(!(Speaker %in% c("QB_NZ_M_472", "QB_NZ_F_680", "QB_NZ_F_781")))
+
+QB2newtype_intercepts <- QB2newtype_intercepts %>%
+  filter(!(Speaker %in% c("QB_NZ_M_472", "QB_NZ_F_680", "QB_NZ_F_781")))
+
+QB1_pc_scores_old <- QB1_pc_scores_old %>%
+  filter(!(Speaker %in% c("QB_NZ_M_472", "QB_NZ_F_680", "QB_NZ_F_781")))
+
+```
+
+Because of this, we are now dealing with 45 speakers in this post-hoc
+analysis.
+
+### PCA {.tabset}
+
+Now we need to run PCA on the two intercept data frames above and
+extract the speaker loadings for PC1 and PC2 to compare it to the
+`QB1_pc_scores_old` data. If the previous stability findings between QB1
+and QB2 are *not* the result of narratives difference, then there will
+be no statistically significant correlation between speaker loadings.
+
+Like the modelling, we can run the PCA on the data frames one at a time,
+starting with the `QB2newtype_intercepts.`
+
+#### New narratives
+
+```{r, eval=FALSE}
+QB2newtype_pca <- pca_test(
+  QB2newtype_intercepts %>% select(-Speaker),
+  n = 1000
+)
+
+write_rds(QB2newtype_pca, here('models', 'QB2newtype_pca.rds'), compress = "gz")
+```
+
+```{r, include=FALSE}
+QB2newtype_pca <- read_rds(here('models', 'QB2newtype_pca.rds'))
+```
+
+And, as per usual, a quick summary of this PCA.
+
+```{r}
+plot_variance_explained(QB2newtype_pca, pc_max = 5)
+```
+
+Like Analysis 1 and Analysis 2, PC1 and PC2 are the most stable PCs in
+this data.
+
+First *PC1*:
+
+```{r qb2new-pc1, fig.cap = "Index loadings for PC1 (QB2 - new narratives).",  cache=FALSE}
+plot_loadings(QB2newtype_pca, pc_no=1)
+```
+
+This is roughly the same as the PC1 generated from the QB2 analysis
+(Analysis 1). The front vowels remain the predominate cluster in this
+data. However, there is slightly less stability with [nurse]{.smallcaps}
+and [dress]{.smallcaps}.
+
+Second *PC2*:
+
+```{r qb2new-pc2, fig.cap = "Index loadings for PC2 (QB2 - new narratives).", cache=FALSE}
+plot_loadings(QB2newtype_pca, pc_no=2, filter_boots=TRUE)
+```
+
+And again, roughly the same cluster is present here as is in the QB2 PC2
+(i.e., [strut]{.smallcaps}, [thought]{.smallcaps}, and
+[start]{.smallcaps}).
+
+And let's check *PC3* while we're here:
+
+```{r qb2new-pc3, fig.cap = "Index loadings for PC3 (QB2 - new narratives).",  cache=FALSE}
+plot_loadings(QB2newtype_pca, pc_no=3, filter_boots=TRUE)
+```
+
+So PC3 includes the [lot]{.smallcaps} variables in an (unstable)
+pairwise relationship with [nurse]{.smallcaps}.
+
+#### Repeated narratives
+
+We can now run PCA on the repeated narratives (i.e.,
+`QB2oldtype_intercepts`).
+
+```{r, eval=FALSE}
+QB2oldtype_pca <- pca_test(
+  QB2oldtype_intercepts %>% select(-Speaker),
+  n = 1000
+)
+
+write_rds(QB2oldtype_pca, here('models', 'QB2oldtype_pca.rds'), compress="gz")
+```
+
+```{r, include=FALSE}
+QB2oldtype_pca <- read_rds(here('models', 'QB2oldtype_pca.rds'))
+```
+
+And, as per usual, a quick summary of this PCA.
+
+```{r}
+plot_variance_explained(QB2newtype_pca, pc_max = 5)
+```
+
+Great, the same PCs are most stable here.
+
+First *PC1*:
+
+```{r qb2old-pc1, fig.cap = "Index loadings for PC1 (QB2 - repeated narratives).",  cache=FALSE}
+plot_loadings(QB2oldtype_pca, pc_no=1)
+```
+
+Again, the main front vowel cluster is apparent here.
+
+Second *PC2*:
+
+```{r qb2old-pc2, fig.cap = "Index loadings for PC2 (QB2 - repeated narratives).",  cache=FALSE}
+plot_loadings(QB2oldtype_pca, pc_no=2, filter_boots = TRUE)
+```
+
+This cluster is more reflected of QB2's PC3 than PC2 with that
+[lot]{.smallcaps} loading.
+
+Finally. *PC3*:
+
+```{r qb2old-pc3, fig.cap = "Index loadings for PC3 (QB2 - repeated narratives).",  cache=FALSE}
+plot_loadings(QB2oldtype_pca, pc_no=3, filter_boots = TRUE)
+```
+
+Now, PC3 is more reflective of the QB1 PC2.
+
+### Correlation test
+
+Similarly to the correlation checks we were running earlier, we grab the
+speaker loading scores per PC and run a Spearman correlation test on
+them.
+
+```{r}
+QB2newtype_pc_scores <- prcomp(
+  QB2newtype_intercepts %>% 
+    select(-Speaker), 
+  scale=TRUE
+  )$x
+
+QB2oldtype_pc_scores <- prcomp(
+  QB2oldtype_intercepts %>% 
+    select(-Speaker),
+  scale=TRUE
+  )$x
+
+QB2newtype_pc_scores <- QB2newtype_intercepts %>%
+  bind_cols(
+    QB2newtype_pc_scores[,1:3] #grabbing PC3 here just in case
+  )
+
+QB2oldtype_pc_scores <- QB2oldtype_intercepts %>% 
+  bind_cols(
+    QB2oldtype_pc_scores[,1:3] #grabbing PC3 here just in case
+  )
+
+
+QBBoth_type_pc_scores <- QB2newtype_pc_scores %>% 
+  select(Speaker, PC1, PC2, PC3) %>% 
+  rename(
+    PC1_qb2new = PC1,
+    PC2_qb2new = PC2,
+    PC3_qb2new = PC3,
+  ) %>% 
+  left_join(
+    QB2oldtype_pc_scores %>% 
+      select(Speaker, PC1, PC2, PC3) %>% 
+      rename(
+        PC1_qb2old = PC1,
+        PC2_qb2old = PC2,
+        PC3_qb2old = PC3
+      ) %>%
+    left_join(
+      QB1_pc_scores_old %>%
+        select(Speaker, PC1, PC2) %>%
+        rename(
+          PC1_qb1old = PC1,
+          PC2_qb1old = PC2
+        )
+    )
+  )
+```
+
+We need to run four correlation tests - one of the QB1old - QB2old,
+another on QB1old - QB2new (per PC) - to answer our question here.
+
+```{r, cor.test, repeated narratives PC1 and PC2}
+cor.test(QBBoth_type_pc_scores$PC1_qb1old, QBBoth_type_pc_scores$PC1_qb2old, method="spearman") # sig.
+
+cor.test(QBBoth_type_pc_scores$PC2_qb1old, QBBoth_type_pc_scores$PC2_qb2old, method="spearman") #not sig.
+
+#let's check PC3 since there were significant correlations between QB1_PC2 and QB2_PC3 in Analysis 2.
+cor.test(QBBoth_type_pc_scores$PC2_qb1old, QBBoth_type_pc_scores$PC3_qb2old, method="spearman") #sig
+```
+
+And now the old vs new
+
+```{r, cor.test, new narratives PC1 and PC2}
+cor.test(QBBoth_type_pc_scores$PC1_qb1old, QBBoth_type_pc_scores$PC1_qb2new, method="spearman") # sig.
+
+cor.test(QBBoth_type_pc_scores$PC2_qb1old, QBBoth_type_pc_scores$PC2_qb2new, method="spearman") # not sig.
+```
+
+In sum, the relatively stable findings in Analysis 1 will appear
+regardless if whether speakers are repeating narratives or telling new
+ones. We find some instability between PC2 for the original vs repeated
+correlation test, however, this is rectified when correlated QB1 PC2 to
+QB2 PC3 (old), similar to the ethnicity correlation tests in Analysis 2.
+This could suggest that some of the clusters in PC2 for repeated QB2
+narratives 'spill over' into PC3 (potentially due to the smaller group
+of speakers we are dealing with for this data set). Furthermore, we can
+be sure that it's not new narratives that are driving the stability
+findings.
+
+# Output Plots
+
+Save figures for publication.
+
+We combine multiple plots into panels using `patchwork`.
+
+```{r, eval=FALSE}
+# Figure 1
+figure_1 <- all_plot / b21_plot +
+  plot_annotation(tag_levels = 'A') +
+  plot_layout(guides = 'collect')
+
+ggsave(
+  plot = figure_1, 
+  here("plots", "figure_1.tiff"), 
+  width = 200,
+  height = 260,
+  units = "mm", 
+  dpi = 300
+)
+
+# Figure 2
+ggsave(
+  plot = parametric_difference_plot, 
+  here("plots", "figure_2.tiff"), 
+  width = 200, 
+  height = 130,
+  units = "mm", 
+  dpi = 300
+)
+
+# Figure 3
+figure_3 <- QB1_plot_variance_explained / 
+  QB2_plot_variance_explained +
+  plot_annotation(tag_levels = 'A') +
+  plot_layout(guides = 'collect')
+
+ggsave(
+  plot = figure_3, 
+  here("plots", "figure_3.tiff"), 
+  width = 200,
+  height = 260,
+  units = "mm", 
+  dpi = 300
+)
+
+# Figure 4
+figure_4 <- QB1_PC1_plot_loadings /
+  QB2_PC1_plot_loadings +
+  plot_annotation(tag_levels = 'A') +
+  plot_layout(guides = 'collect')
+
+ggsave(
+  plot = figure_4, 
+  here("plots", "figure_4.tiff"), 
+  width = 200,
+  height = 260,
+  units = "mm", 
+  dpi = 300
+)
+
+# Figure 5
+
+ggsave(
+  plot = PC1_corrplot, 
+  here("plots", "figure_5.tiff"), 
+  width = 200,
+  height = 260,
+  units = "mm", 
+  dpi = 300
+)
+
+# Figure 6
+figure_6 <- QB1_PC2_plot_loadings /
+  QB2_PC2_plot_loadings +
+  plot_annotation(tag_levels = 'A') +
+  plot_layout(guides = 'collect')
+
+ggsave(
+  plot = figure_6, 
+  here("plots", "figure_6.tiff"), 
+  width = 200,
+  height = 260,
+  units = "mm", 
+  dpi = 300
+)
+
+
+# Figure 7
+ggsave(
+  plot = PC2_corrplot, 
+  here("plots", "figure_7.tiff"), 
+  width = 200,
+  height = 260,
+  units = "mm", 
+  dpi = 300
+)
+
+```
