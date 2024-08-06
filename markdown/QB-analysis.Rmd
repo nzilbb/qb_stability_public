@@ -1657,7 +1657,9 @@ ggplotly(plotly_plot) %>% layout(height=900, showlegend=FALSE)
 ```
 
 We also need to plot these with the results from B21. We plot both male
-and female speakers. All smooths were found to be significant.
+and female speakers. All smooths were found to be significant in the original
+paper. To match the previous plots for _this_ paper, we manually add a "*" to
+the labels to indicate this.
 
 Here we just copy from the function defined above and modify variable
 names.
