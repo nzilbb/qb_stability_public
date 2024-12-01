@@ -95,10 +95,7 @@ details, look [here](https://rstudio.github.io/renv/articles/renv.html).
 
 ## Libraries and Data
 
-This document uses the following libraries. Note the use of
-`nzilbb.vowels`, which is in development and available [via
-GitHub](https://github.com/nzilbb/nzilbb_vowels). Code to install from
-GitHub is in the code block below.
+This document uses the following libraries. 
 
 ```{r}
 # We use a wide range of tidyverse functions for data filtering and plotting.
@@ -134,7 +131,6 @@ library(kableExtra) #outputting nice tables
 # We use `here` for file path management.
 library(here)
 
-#remotes::install_github('nzilbb/nzilbb_vowels')
 library(nzilbb.vowels)
 
 # We set a seed here. This will only give the same models if you run each
@@ -2446,6 +2442,14 @@ write_rds(QB1_pca, here('models', 'QB1_pca.rds'), compress="gz")
 QB1_pca <- read_rds(here('models', 'QB1_pca.rds'))
 ```
 
+For this PCA, the variable loadings for PC1 is in the opposite direction for
+Brand et al (2021). We will change it here to keep it consistent to Brand et al
+(2021). Recall that the direction of a PC is arbitrary.
+
+```{r}
+QB1_pca <- pc_flip(QB1_pca, pc_no = 1)
+```
+
 #### How Many PCs?
 
 ```{r}
@@ -2490,6 +2494,8 @@ QB1_pca_simple <- prcomp(
   QB1_intercepts %>% select(-Speaker),
   scale=TRUE
 )
+
+QB1_pca_simple <- pc_flip(QB1_pca_simple, pc_no = 1)
 
 pca_contrib_plot(QB1_pca_simple, pc_no = 1, cutoff = 50)
 ```
@@ -2618,6 +2624,14 @@ write_rds(QB2_pca, here('models', 'QB2_pca.rds'), compress="gz")
 QB2_pca <- read_rds(here('models', 'QB2_pca.rds'))
 ```
 
+Again for QB2, the variable loadings for PC1 is in the opposite direction for
+Brand et al (2021). We will change it here to keep it consistent to Brand et al
+(2021).
+
+```{r}
+QB2_pca <- pc_flip(QB2_pca, pc_no = 1)
+```
+
 #### How Many PCs?
 
 ```{r}
@@ -2657,6 +2671,8 @@ QB2_pca_simple <- prcomp(
   QB2_intercepts %>% select(-Speaker),
   scale = TRUE
 )
+
+QB2_pca_simple <- pc_flip(QB2_pca_simple, pc_no= 1)
 
 pca_contrib_plot(QB2_pca_simple, pc_no = 1, cutoff = 50)
 ```
