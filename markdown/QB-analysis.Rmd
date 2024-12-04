@@ -1555,6 +1555,10 @@ qb_plot <- function(in_data) {
 # The complexity of this code block is due to addition
 # of non-significant smooths to the plot.
 all_plot <- QB1_preds %>%
+  mutate(
+    Gender = if_else(Gender == "F", "W", Gender),
+    Gender = factor(Gender, levels = c("M", "W"))
+  ) %>%
   add_labels(is_sig=TRUE) %>% 
   ggplot(
     mapping = aes(
@@ -1671,8 +1675,9 @@ b21_preds <- b21_preds %>%
     values_from = c(fit, CI)
   ) %>% 
   mutate(
+    Gender = if_else(Gender == "F", "W", Gender),
     Vowel = factor(Vowel, levels = vowels),
-    Gender = factor(Gender, levels = c("M", "F"))
+    Gender = factor(Gender, levels = c("M", "W"))
   ) %>% 
   group_by(Vowel, Gender) %>%
     # Again, important to use _maximum_ here to get the oldest speakers to be
@@ -2043,7 +2048,8 @@ parametric_difference_plot <- QBBoth_models %>%
     .direction = "down" 
   ) %>%
   mutate(
-    Gender = factor(Gender, levels = c("M", "F"))
+    Gender= if_else(Gender == "F", "W", Gender),
+    Gender = factor(Gender, levels = c("M", "W"))
 ) %>%
   ggplot(
     aes(
